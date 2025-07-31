@@ -29,7 +29,7 @@ class GeminiResponse:
 class GeminiService:
     """Servicio para interactuar con Google Gemini AI"""
     
-    def __init__(self, api_key: Optional[str] = None, model: str = "gemini-2.0-flash-exp"):
+    def __init__(self, api_key: Optional[str] = None, model: str = "gemini-2.5-pro"):
         """
         Inicializar el servicio Gemini
         
@@ -194,6 +194,104 @@ class GeminiService:
             print(f"Error llamando a la API de Gemini: {error}")
             raise Exception(f"Error de la API de Gemini: {str(error)}")
     
+    def generate_with_images_sync(
+        self,
+        prompt: str,
+        images: Optional[List[Image.Image]] = None,
+        image_paths: Optional[List[str]] = None,
+        system_prompt: Optional[str] = None,
+        temperature: Optional[float] = None,
+        model: Optional[str] = None
+    ) -> GeminiResponse:
+        """
+        Versión que acepta múltiples imágenes
+        
+        Args:
+            prompt: Prompt de texto
+            images: Lista de imágenes PIL (opcional)
+            image_paths: Lista de rutas a archivos de imagen (opcional)
+            system_prompt: Prompt del sistema (opcional)
+            temperature: Temperatura para la generación (opcional)
+            model: Modelo específico a usar (opcional)
+            
+        Returns:
+            GeminiResponse con la respuesta generada
+        """
+        if not images and not image_paths:
+            raise ValueError("Se debe proporcionar al menos una imagen (PIL) o ruta de imagen")
+        
+        # Preparar las imágenes
+        image_data_list = []
+        
+        if images:
+            for img in images:
+                image_data_list.append(self._prepare_image_from_pil(img))
+        
+        if image_paths:
+            for path in image_paths:
+                image_data_list.append(self._prepare_image_from_path(path))
+        
+        # Configurar el modelo
+        model_name = model or self.model
+        temp = temperature if temperature is not None else self.temperature
+        
+        model_instance = genai.GenerativeModel(
+            model_name=model_name,
+            generation_config=genai.types.GenerationConfig(
+                temperature=temp,
+                max_output_tokens=self.max_output_tokens,
+            )
+        )
+        
+        # Preparar el contenido
+        parts = []
+        
+        # Agregar system prompt si se proporciona
+        if system_prompt:
+            parts.append(system_prompt)
+        
+        # Agregar el prompt principal
+        parts.append(prompt)
+        
+        # Agregar todas las imágenes
+        for i, image_data in enumerate(image_data_list):
+            parts.append({
+                "mime_type": image_data.mime_type,
+                "data": image_data.data
+            })
+        
+        try:
+            # Medir tiempo de ejecución
+            start_time = time.time()
+            
+            # Generar contenido
+            response = model_instance.generate_content(parts)
+            
+            end_time = time.time()
+            duration_ms = int((end_time - start_time) * 1000)
+            
+            # Extraer información de uso
+            usage = {
+                "prompt_tokens": getattr(response.usage_metadata, 'prompt_token_count', 0),
+                "completion_tokens": getattr(response.usage_metadata, 'candidates_token_count', 0),
+                "total_tokens": getattr(response.usage_metadata, 'total_token_count', 0),
+            }
+            
+            # Preparar respuesta
+            gemini_response = GeminiResponse(
+                content=response.text,
+                usage=usage,
+                model=model_name,
+                finish_reason=getattr(response.candidates[0], 'finish_reason', 'STOP') if response.candidates else 'STOP',
+                duration_ms=duration_ms
+            )
+            
+            return gemini_response
+            
+        except Exception as error:
+            print(f"Error llamando a la API de Gemini: {error}")
+            raise Exception(f"Error de la API de Gemini: {str(error)}")
+
     def generate_with_image_sync(
         self,
         prompt: str,
