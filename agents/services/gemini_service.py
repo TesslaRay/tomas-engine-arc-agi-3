@@ -217,8 +217,8 @@ class GeminiService:
         Returns:
             GeminiResponse con la respuesta generada
         """
-        if not images and not image_paths:
-            raise ValueError("Se debe proporcionar al menos una imagen (PIL) o ruta de imagen")
+        # if not images and not image_paths:
+        #     raise ValueError("Se debe proporcionar al menos una imagen (PIL) o ruta de imagen")
         
         # Preparar las imágenes
         image_data_list = []

@@ -1,0 +1,808 @@
+import json
+import os
+import random
+import re
+import time
+import base64
+from typing import Any, Dict, List, Optional
+
+from ..agent import Agent
+from ..structs import FrameData, GameAction, GameState
+from ..image_utils import grid_to_image
+from ..services.gemini_service import GeminiService
+
+
+class Tomas(Agent):
+    """An agent that always selects actions at random."""
+
+    MAX_ACTIONS = 20
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        seed = int(time.time() * 1000000) + hash(self.game_id) % 1000000
+        random.seed(seed)
+        
+        # Inicializar el servicio de Gemini
+        try:
+            self.gemini_service = GeminiService()
+            print("✅ Servicio Gemini inicializado correctamente")
+        except Exception as e:
+            print(f"⚠️ Error al inicializar Gemini: {e}")
+            self.gemini_service = None            
+        
+        # Inicializar memoria episódica
+        self.episodic_memory: List[Dict[str, Any]] = []
+        self.max_memory_size = 10  # Mantener los últimos 10 movimientos
+        
+        # Almacenar las últimas 3 imágenes para análisis
+        self.recent_images: List[Any] = []  # PIL Images
+        self.max_images = 3
+        
+        # Sistema de memoria del Vector Cognitivo Global
+        self.vcg_history: List[Dict[str, Any]] = []
+        self.max_vcg_history = 5  # Mantener los últimos 5 VCG completos
+        
+        # Estado anterior del tablero para análisis diferencial
+        self.previous_board_state = None
+        self.previous_frame_data = None    
+
+    def load_markdown_file(self, file_path: str) -> str:
+        """
+        Cargar un archivo markdown de forma genérica
+        
+        Args:
+            file_path: Ruta relativa al archivo .md desde el directorio tomas/
+            
+        Returns:
+            Contenido del archivo como string
+        """
+        try:
+            # Obtener la ruta del directorio actual del archivo
+            current_dir = os.path.dirname(os.path.abspath(__file__))
+            full_path = os.path.join(current_dir, file_path)
+            
+            if not os.path.exists(full_path):
+                print(f"⚠️ Archivo {file_path} no encontrado en: {full_path}")
+                return f"# Error: Archivo {file_path} no encontrado"
+            
+            with open(full_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+            
+            print(f"✅ Archivo {file_path} cargado correctamente")
+            return content
+            
+        except Exception as e:
+            print(f"⚠️ Error al cargar {file_path}: {e}")
+            return f"# Error: No se pudo cargar {file_path}"
+
+    def ask_apeiron_analysis(self, latest_frame: FrameData, vector_cognitivo_global_anterior: Optional[str] = None) -> tuple[str, Optional[Dict[str, Any]]]:
+        """
+        Consultar a APEIRON (LLM1) para análisis perceptual
+        
+        Args:
+            latest_frame: Estado actual del frame
+            vector_cognitivo_global_anterior: VCG del turno anterior (opcional)
+            
+        Returns:
+            Tupla con (respuesta_completa, json_extraido)
+        """
+        if not self.gemini_service or latest_frame.is_empty():
+            return "Análisis no disponible", None
+        
+        try:
+            # Cargar los archivos necesarios
+            alma_content = self.load_markdown_file("alma.md")
+            apeiron_system_prompt = self.load_markdown_file("processus/apeiron/system-prompt.md")
+            apeiron_response_format = self.load_markdown_file("processus/apeiron/response.md")
+            
+            # Generar imagen del mapa actual (comentado por ahora)
+            # map_image = grid_to_image(latest_frame.frame)
+            
+            # Construir el prompt combinado
+            combined_prompt = f"""
+{alma_content}
+
+{apeiron_system_prompt}
+
+{apeiron_response_format}
+
+## ESTADO ACTUAL DEL JUEGO:
+- Puntuación: {latest_frame.score}
+- Acción número: {self.action_counter}
+- Estado del juego: {latest_frame.state}
+
+## input_fresco (board_state actual):
+{latest_frame.frame}
+
+## board_state_anterior (para análisis diferencial):
+{self.previous_board_state if self.previous_board_state is not None else "Este es el primer turno - no hay estado anterior"}
+
+## vector_cognitivo_global_anterior:
+{vector_cognitivo_global_anterior if vector_cognitivo_global_anterior else "Este es el primer turno - no hay VCG anterior"}
+"""
+            
+            print(f"\n🧠 === CONSULTANDO APEIRON (LLM1) ===")
+            print(f"🎯 Fase: Análisis Perceptual")
+            
+            # Log de entrada
+            print(f"\n📥 ENTRADA APEIRON:")
+            print(f"   📄 Alma: {len(alma_content)} chars")
+            print(f"   📄 System Prompt: {len(apeiron_system_prompt)} chars")
+            print(f"   📄 Response Format: {len(apeiron_response_format)} chars")
+            print(f"   🎮 Frame Data: {latest_frame.frame.shape if hasattr(latest_frame.frame, 'shape') else 'N/A'}")
+            print(f"   📊 VCG Anterior: {len(vector_cognitivo_global_anterior) if vector_cognitivo_global_anterior else 0} chars")
+            print(f"   📝 Prompt Total: {len(combined_prompt)} chars")
+            
+            response = self.gemini_service.generate_with_images_sync(
+                prompt=combined_prompt,
+                images=[],  # Sin imágenes por ahora, solo matriz
+                system_prompt=alma_content
+            )
+            
+            # Log de salida
+            print(f"\n📤 SALIDA APEIRON:")
+            print(f"   ✅ Completado en {response.duration_ms}ms")
+            print(f"   🎫 Tokens: {response.usage['total_tokens']}")
+            print(f"   📝 Respuesta: {len(response.content)} chars")
+            print(f"   📄 Contenido completo:")
+            print(f"{response.content}")
+            
+            # Extraer JSON de la respuesta
+            extracted_json = self.extract_json_from_llm_response(response.content, "apeiron")
+            
+            return response.content, extracted_json
+            
+        except Exception as e:
+            print(f"❌ Error en APEIRON: {e}")
+            return f"Error en APEIRON: {str(e)}", None
+
+    def ask_sophia_analysis(self, apeiron_response: str) -> tuple[str, Optional[Dict[str, Any]]]:
+        """
+        Consultar a SOPHIA (LLM2) para análisis epistémico
+        
+        Args:
+            apeiron_response: Respuesta completa de APEIRON del turno actual
+            
+        Returns:
+            Tupla con (respuesta_completa, json_extraido)
+        """
+        if not self.gemini_service:
+            return "Análisis no disponible", None
+        
+        try:
+            # Cargar los archivos necesarios
+            alma_content = self.load_markdown_file("alma.md")
+            sophia_system_prompt = self.load_markdown_file("processus/sophia/system-prompt.md")
+            sophia_response_format = self.load_markdown_file("processus/sophia/responde.md")
+            
+            # Construir el prompt combinado
+            combined_prompt = f"""
+{alma_content}
+
+{sophia_system_prompt}
+
+{sophia_response_format}
+
+## Vector Cognitivo Global actualizado por APEIRON:
+{apeiron_response}
+"""
+            
+            print(f"\n🧠 === CONSULTANDO SOPHIA (LLM2) ===")
+            print(f"🎯 Fase: Análisis Epistémico")
+            
+            # Log de entrada
+            print(f"\n📥 ENTRADA SOPHIA:")
+            print(f"   📄 Alma: {len(alma_content)} chars")
+            print(f"   📄 System Prompt: {len(sophia_system_prompt)} chars")
+            print(f"   📄 Response Format: {len(sophia_response_format)} chars")
+            print(f"   🧠 Respuesta APEIRON: {len(apeiron_response)} chars")
+            print(f"   📝 Prompt Total: {len(combined_prompt)} chars")
+            
+            response = self.gemini_service.generate_with_images_sync(
+                prompt=combined_prompt,
+                images=[],  # Sophia no necesita imágenes, trabaja con conceptos
+                system_prompt=alma_content
+            )
+            
+            # Log de salida
+            print(f"\n📤 SALIDA SOPHIA:")
+            print(f"   ✅ Completado en {response.duration_ms}ms")
+            print(f"   🎫 Tokens: {response.usage['total_tokens']}")
+            print(f"   📝 Respuesta: {len(response.content)} chars")
+            print(f"   📄 Contenido completo:")
+            print(f"{response.content}")
+            
+            # Extraer JSON de la respuesta
+            extracted_json = self.extract_json_from_llm_response(response.content, "sophia")
+            
+            return response.content, extracted_json
+            
+        except Exception as e:
+            print(f"❌ Error en SOPHIA: {e}")
+            return f"Error en SOPHIA: {str(e)}", None
+
+    def ask_logos_analysis(self, sophia_response: str) -> tuple[str, Optional[Dict[str, Any]]]:
+        """
+        Consultar a LOGOS (LLM3) para deliberación y acción
+        
+        Args:
+            sophia_response: Respuesta completa de SOPHIA del turno actual
+            
+        Returns:
+            Tupla con (respuesta_completa, json_extraido)
+        """
+        if not self.gemini_service:
+            return "Análisis no disponible", None
+        
+        try:
+            # Cargar los archivos necesarios
+            alma_content = self.load_markdown_file("alma.md")
+            logos_system_prompt = self.load_markdown_file("processus/logos/system-prompt.md")
+            logos_response_format = self.load_markdown_file("processus/logos/response.md")
+            
+            # Construir el prompt combinado
+            combined_prompt = f"""
+{alma_content}
+
+{logos_system_prompt}
+
+{logos_response_format}
+
+## Vector Cognitivo Global enriquecido por SOPHIA:
+{sophia_response}
+"""
+            
+            print(f"\n🧠 === CONSULTANDO LOGOS (LLM3) ===")
+            print(f"🎯 Fase: Deliberación y Acción")
+            
+            # Log de entrada
+            print(f"\n📥 ENTRADA LOGOS:")
+            print(f"   📄 Alma: {len(alma_content)} chars")
+            print(f"   📄 System Prompt: {len(logos_system_prompt)} chars")
+            print(f"   📄 Response Format: {len(logos_response_format)} chars")
+            print(f"   🧠 Respuesta SOPHIA: {len(sophia_response)} chars")
+            print(f"   📝 Prompt Total: {len(combined_prompt)} chars")
+            
+            response = self.gemini_service.generate_with_images_sync(
+                prompt=combined_prompt,
+                images=[],  # Logos no necesita imágenes, trabaja con estrategia
+                system_prompt=alma_content
+            )
+            
+            # Log de salida
+            print(f"\n📤 SALIDA LOGOS:")
+            print(f"   ✅ Completado en {response.duration_ms}ms")
+            print(f"   🎫 Tokens: {response.usage['total_tokens']}")
+            print(f"   📝 Respuesta: {len(response.content)} chars")
+            print(f"   📄 Contenido completo:")
+            print(f"{response.content}")
+            
+            # Extraer JSON de la respuesta
+            extracted_json = self.extract_json_from_llm_response(response.content, "logos")
+            
+            return response.content, extracted_json
+            
+        except Exception as e:
+            print(f"❌ Error en LOGOS: {e}")
+            return f"Error en LOGOS: {str(e)}", None
+
+    def extract_json_from_llm_response(self, llm_response: str, llm_type: str) -> Optional[Dict[str, Any]]:
+        """
+        Extrae el JSON de la respuesta del LLM según el tipo (apeiron, sophia, logos)
+        
+        Args:
+            llm_response: Respuesta completa del LLM
+            llm_type: Tipo de LLM ("apeiron", "sophia", "logos")
+            
+        Returns:
+            Diccionario con el JSON extraído o None si no se encuentra
+        """
+        try:
+            # Buscar el JSON principal usando un enfoque más preciso
+            # Primero intentar encontrar bloques JSON con llaves balanceadas
+            json_start = llm_response.find('{')
+            if json_start == -1:
+                print(f"❌ No se encontró JSON en la respuesta de {llm_type.upper()}")
+                return None
+            
+            # Buscar el JSON completo balanceando llaves
+            brace_count = 0
+            json_end = json_start
+            for i, char in enumerate(llm_response[json_start:], json_start):
+                if char == '{':
+                    brace_count += 1
+                elif char == '}':
+                    brace_count -= 1
+                    if brace_count == 0:
+                        json_end = i + 1
+                        break
+            
+            if brace_count != 0:
+                print(f"❌ JSON mal formateado en {llm_type.upper()} - llaves no balanceadas")
+                return None
+            
+            # Extraer el JSON completo
+            json_text = llm_response[json_start:json_end]
+            
+            try:
+                parsed_json = json.loads(json_text)
+                
+                # Definir campos requeridos según el tipo de LLM
+                required_fields = {
+                    "apeiron": ["timestamp", "analisis_diferencial", "entidades_conceptualizadas", "nuevos_aprendizajes_del_turno", "resumen_para_llm2_y_llm3"],
+                    "sophia": ["timestamp", "analisis_epistemico", "conclusiones_sobre_entidades", "reglas_del_juego_verificadas"],
+                    "logos": ["timestamp", "fase_intentio", "fase_consilium", "fase_electio", "fase_imperium"]
+                }
+                
+                target_fields = required_fields.get(llm_type, [])
+                
+                # Validar que tenga los campos requeridos según el tipo
+                if all(field in parsed_json for field in target_fields):
+                    print(f"✅ JSON válido extraído de {llm_type.upper()}")
+                    return parsed_json
+                else:
+                    print(f"⚠️ JSON de {llm_type.upper()} no tiene todos los campos requeridos")
+                    print(f"   Esperados: {target_fields}")
+                    print(f"   Encontrados: {list(parsed_json.keys())}")
+                    return None
+                    
+            except json.JSONDecodeError as e:
+                print(f"❌ Error al parsear JSON de {llm_type.upper()}: {e}")
+                return None
+            
+        except Exception as e:
+            print(f"❌ Error al extraer JSON de {llm_type.upper()}: {e}")
+            return None
+
+    def llmJsonExtractor(self, llm_response: str) -> Optional[Dict[str, Any]]:
+        """
+        Método legacy - mantener para compatibilidad
+        """
+        return self.extract_json_from_llm_response(llm_response, "logos")
+
+    def _map_action_number_to_game_action(self, action_number: int) -> GameAction:
+        """
+        Mapear número de acción del JSON a GameAction
+        
+        Args:
+            action_number: Número de acción (1-6)
+            
+        Returns:
+            GameAction correspondiente
+        """
+        action_map = {
+            1: GameAction.ACTION1,  # Arriba
+            2: GameAction.ACTION2,  # Abajo
+            3: GameAction.ACTION3,  # Izquierda
+            4: GameAction.ACTION4,  # Derecha
+            5: GameAction.ACTION5,  # Barra espaciadora
+            6: GameAction.ACTION6,  # Click del mouse
+        }
+        
+        return action_map.get(action_number, GameAction.ACTION1)  # Default a ACTION1 si no se encuentra
+
+    def add_to_episodic_memory(self, action: GameAction, frame_before: FrameData, frame_after: FrameData, gemini_analysis: Optional[Dict[str, Any]] = None) -> None:
+        """
+        Agregar un movimiento a la memoria episódica
+        
+        Args:
+            action: Acción tomada
+            frame_before: Estado del juego antes de la acción
+            frame_after: Estado del juego después de la acción
+            gemini_analysis: Análisis de Gemini para esta acción
+        """
+        memory_entry = {
+            "action_number": self.action_counter,
+            "action": action.value,
+            "action_name": self._get_action_name(action.value),
+            "score_before": frame_before.score,
+            "score_after": frame_after.score,
+            "score_change": frame_after.score - frame_before.score,
+            "game_state_before": frame_before.state.value,
+            "game_state_after": frame_after.state.value,
+            "gemini_reasoning": gemini_analysis.get("current_hypothesis", "") if gemini_analysis else "",
+            "timestamp": time.time()
+        }
+        
+        # Agregar a la memoria
+        self.episodic_memory.append(memory_entry)
+        
+        # Mantener solo los últimos N movimientos
+        if len(self.episodic_memory) > self.max_memory_size:
+            self.episodic_memory.pop(0)
+        
+        print(f"📝 Memoria actualizada: {len(self.episodic_memory)} entradas")
+
+    def _get_action_name(self, action_value: int) -> str:
+        """Convertir número de acción a nombre legible"""
+        action_names = {
+            0: "RESET",
+            1: "Arriba",
+            2: "Abajo", 
+            3: "Izquierda",
+            4: "Derecha",
+            5: "Barra",
+            6: "Click"
+        }
+        return action_names.get(action_value, f"Acción {action_value}")
+
+    def get_memory_summary(self) -> str:
+        """
+        Generar un resumen de la memoria episódica para el prompt de Gemini
+        
+        Returns:
+            String con resumen de movimientos recientes
+        """
+        if not self.episodic_memory:
+            return "## Historial de Movimientos\nEste es el primer movimiento del juego."
+        
+        summary = "## Historial de Movimientos Recientes\n\n"
+        
+        for i, entry in enumerate(self.episodic_memory[-5:], 1):  # Últimos 5 movimientos
+            score_indicator = ""
+            if entry["score_change"] > 0:
+                score_indicator = f" (+{entry['score_change']} puntos ✅)"
+            elif entry["score_change"] < 0:
+                score_indicator = f" ({entry['score_change']} puntos ❌)"
+            else:
+                score_indicator = " (sin cambio de puntuación)"
+            
+            summary += f"**Movimiento {entry['action_number']}:** {entry['action_name']}{score_indicator}\n"
+            if entry["gemini_reasoning"]:
+                summary += f"- Razonamiento: {entry['gemini_reasoning']}\n"
+            summary += f"- Estado: {entry['game_state_before']} → {entry['game_state_after']}\n\n"
+        
+        # Agregar análisis de patrones
+        if len(self.episodic_memory) >= 3:
+            recent_scores = [entry["score_change"] for entry in self.episodic_memory[-3:]]
+            if all(s >= 0 for s in recent_scores):
+                summary += "🎯 **Patrón observado:** Los últimos movimientos han sido exitosos o neutrales.\n"
+            elif all(s <= 0 for s in recent_scores):
+                summary += "⚠️ **Patrón observado:** Los últimos movimientos no han mejorado la puntuación.\n"
+        
+        return summary
+
+    def add_image_to_history(self, image) -> None:
+        """
+        Agregar imagen al historial de imágenes recientes
+        
+        Args:
+            image: PIL Image object
+        """
+        self.recent_images.append(image)
+        
+        # Mantener solo las últimas 3 imágenes
+        if len(self.recent_images) > self.max_images:
+            self.recent_images.pop(0)
+        
+        print(f"📸 Historial de imágenes actualizado: {len(self.recent_images)} imágenes")
+
+    def display_image_in_iterm2(self, image) -> None:
+        """
+        Mostrar imagen directamente en iTerm2 usando secuencias de escape
+        
+        Args:
+            image: PIL Image object (ya viene escalada 5x desde grid_to_image)
+        """
+        try:
+            import io
+            
+            # Convertir imagen a bytes
+            img_buffer = io.BytesIO()
+            image.save(img_buffer, format='PNG')
+            img_data = img_buffer.getvalue()
+            
+            # Codificar en base64
+            img_base64 = base64.b64encode(img_data).decode('utf-8')
+            
+            # Secuencia de escape de iTerm2 para mostrar imagen
+            print(f"\033]1337;File=inline=1:{img_base64}\a")
+            
+        except Exception as e:
+            print(f"⚠️ Error al mostrar imagen en iTerm2: {e}")
+
+    def display_recent_images_in_iterm2(self) -> None:
+        """
+        Mostrar las imágenes recientes disponibles en iTerm2
+        """
+        if not self.recent_images:
+            print("📸 No hay imágenes en el historial")
+            return
+        
+        print(f"🖼️ === MAPAS RECIENTES ({len(self.recent_images)} imágenes) ===")
+        
+        for i, image in enumerate(self.recent_images):
+            if i == len(self.recent_images) - 1:
+                print(f"📍 Mapa actual (turno {self.action_counter}):")
+            else:
+                print(f"📜 Mapa anterior {i+1}:")
+            
+            self.display_image_in_iterm2(image)
+            print()
+        
+        print("=" * 50)
+
+    @property
+    def name(self) -> str:
+        return f"{super().name}.{self.MAX_ACTIONS}"
+
+    def is_done(self, frames: list[FrameData], latest_frame: FrameData) -> bool:
+        """Decide if the agent is done playing or not."""
+        return any(
+            [
+                latest_frame.state is GameState.WIN,
+                # uncomment to only let the agent play one time
+                # latest_frame.state is GameState.GAME_OVER,
+            ]
+        )
+
+    def show_current_map(self, latest_frame: FrameData) -> None:
+        """Display the current map state as an image and save it."""
+        print(f"\n=== ESTADO ACTUAL DEL MAPA ===")
+        print(f"Estado del juego: {latest_frame.state}")
+        print(f"Puntuación: {latest_frame.score}")
+        print(f"Acción número: {self.action_counter}")
+        
+        if latest_frame.is_empty():
+            print("Mapa vacío - no hay datos para mostrar")
+            return
+        
+        # Convertir el mapa a imagen
+        map_image = grid_to_image(latest_frame.frame)
+        
+        # Guardar la imagen con información del estado
+        filename = f"images/tomas_map_action_{self.action_counter:03d}_score_{latest_frame.score:03d}.png"
+        map_image.save(filename)
+        
+        print(f"Imagen del mapa guardada como: {filename}")
+        print(f"Dimensiones de la imagen: {map_image.size}")
+        print("=" * 40)
+        
+        return map_image
+
+    def ask_gemini_analysis(self, latest_frame: FrameData) -> tuple[str, Optional[Dict[str, Any]]]:
+        """
+        Ejecutar el flujo secuencial APEIRON → SOPHIA → LOGOS
+        
+        Returns:
+            Tupla con (respuesta_completa_de_logos, json_extraido_de_logos)
+        """
+        if not self.gemini_service or latest_frame.is_empty():
+            return "Análisis no disponible", None
+        
+        try:
+            # Generar imagen del mapa actual (comentado por ahora)
+            # map_image = grid_to_image(latest_frame.frame)
+            
+            # Agregar imagen actual al historial (comentado por ahora)
+            # self.add_image_to_history(map_image)
+            
+            # Mostrar imágenes recientes en iTerm2 (comentado por ahora)
+            # self.display_recent_images_in_iterm2()
+            
+            print(f"\n🧠 === INICIANDO FLUJO COGNITIVO TOMAS ===")
+            print(f"🎯 Turno {self.action_counter} | Puntuación: {latest_frame.score}")
+            print(f"🔄 Flujo: APEIRON → SOPHIA → LOGOS")
+            print("=" * 60)
+            
+            # Guardar el estado actual como "anterior" para el próximo turno
+            # (Esto se hace al INICIO del turno, no al final)
+            
+            # Obtener VCG anterior si existe
+            vector_cognitivo_global_anterior = self.get_vector_cognitivo_global_anterior()
+            
+            # Debug: mostrar si tenemos VCG anterior
+            if vector_cognitivo_global_anterior:
+                print(f"📚 VCG Anterior disponible: {len(vector_cognitivo_global_anterior)} chars")
+            else:
+                print(f"📚 Primer turno - No hay VCG anterior")
+            
+            # PASO 1: APEIRON - Análisis Perceptual
+            apeiron_response, apeiron_json = self.ask_apeiron_analysis(
+                latest_frame, 
+                vector_cognitivo_global_anterior
+            )
+            
+            if not apeiron_json:
+                print("⚠️ APEIRON no devolvió JSON válido, continuando con respuesta textual")
+            
+            # PASO 2: SOPHIA - Análisis Epistémico
+            sophia_response, sophia_json = self.ask_sophia_analysis(apeiron_response)
+            
+            if not sophia_json:
+                print("⚠️ SOPHIA no devolvió JSON válido, continuando con respuesta textual")
+            
+            # PASO 3: LOGOS - Deliberación y Acción
+            logos_response, logos_json = self.ask_logos_analysis(sophia_response)
+            
+            if not logos_json:
+                print("⚠️ LOGOS no devolvió JSON válido")
+            
+            print(f"\n✅ === FLUJO COGNITIVO COMPLETADO ===")
+            print(f"📊 Total de pasos ejecutados: APEIRON ✅ | SOPHIA ✅ | LOGOS ✅")
+            print("=" * 60)
+            
+            # Guardar el VCG completo para el próximo turno
+            # IMPORTANTE: Guardamos el estado ACTUAL como referencia para el PRÓXIMO turno
+            self.previous_frame_data = latest_frame
+            self.previous_board_state = latest_frame.frame
+            self.save_vector_cognitivo_global(apeiron_response, sophia_response, logos_response)
+            
+            # Retornar la respuesta de LOGOS (que contiene la decisión de acción)
+            return logos_response, logos_json
+            
+        except Exception as e:
+            print(f"❌ Error en flujo TOMAS: {e}")
+            return f"Error en flujo TOMAS: {str(e)}", None
+
+    def get_vector_cognitivo_global_anterior(self) -> Optional[str]:
+        """
+        Obtener el Vector Cognitivo Global completo del turno anterior
+        """
+        if not self.vcg_history:
+            return None
+        
+        # Obtener el VCG más reciente
+        last_vcg = self.vcg_history[-1]
+        
+        # Construir el VCG anterior con toda la información
+        vcg_anterior = f"""
+## Vector Cognitivo Global del Turno Anterior (Turno {last_vcg['turno']})
+
+### Estado LLM1 (APEIRON - Percepción anterior):
+{last_vcg['apeiron_response']}
+
+### Estado LLM2 (SOPHIA - Abstracción anterior):
+{last_vcg['sophia_response']}
+
+### Estado LLM3 (LOGOS - Deliberación anterior):
+{last_vcg['logos_response']}
+
+### board_state anterior:
+{last_vcg['board_state']}
+
+### Contexto del turno:
+- Puntuación: {last_vcg['score']}
+- Estado del juego: {last_vcg['game_state']}
+- Timestamp: {last_vcg['timestamp']}
+"""
+        return vcg_anterior
+
+    def save_vector_cognitivo_global(self, apeiron_response: str, sophia_response: str, logos_response: str) -> None:
+        """
+        Guardar el Vector Cognitivo Global completo del turno actual con toda la información
+        """
+        try:
+            print(f"\n💾 === GUARDANDO VCG TURNO {self.action_counter} ===")
+            
+            # Crear VCG completo con toda la información necesaria
+            vcg_completo = {
+                "turno": self.action_counter,
+                "timestamp": time.time(),
+                "apeiron_response": apeiron_response,
+                "sophia_response": sophia_response,
+                "logos_response": logos_response,
+                "board_state": str(self.previous_frame_data.frame) if self.previous_frame_data else "N/A",
+                "score": self.previous_frame_data.score if self.previous_frame_data else 0,
+                "game_state": str(self.previous_frame_data.state) if self.previous_frame_data else "UNKNOWN"
+            }
+            
+            # Agregar a la historia de VCG
+            self.vcg_history.append(vcg_completo)
+            
+            # Mantener solo los últimos N VCG
+            if len(self.vcg_history) > self.max_vcg_history:
+                self.vcg_history.pop(0)
+            
+            print(f"✅ VCG completo guardado - Turno {vcg_completo['turno']}")
+            print(f"   📝 APEIRON: {len(apeiron_response)} chars")
+            print(f"   🧠 SOPHIA: {len(sophia_response)} chars")
+            print(f"   ⚡ LOGOS: {len(logos_response)} chars")
+            print(f"   🎮 Board State: Guardado")
+            print(f"   📊 Score: {vcg_completo['score']}")
+            print(f"   📚 Historia VCG: {len(self.vcg_history)}/{self.max_vcg_history}")
+            
+        except Exception as e:
+            print(f"⚠️ Error al guardar VCG: {e}")
+
+    def choose_action(
+        self, frames: list[FrameData], latest_frame: FrameData
+    ) -> GameAction:
+        """Choose which action the Agent should take, fill in any arguments, and return it."""
+        
+        # Mostrar el estado actual del mapa antes de tomar la decisión
+        self.show_current_map(latest_frame)
+        
+        if latest_frame.state in [GameState.NOT_PLAYED, GameState.GAME_OVER]:
+            # if game is not started (at init or after GAME_OVER) we need to reset
+            # add a small delay before resetting after GAME_OVER to avoid timeout
+            action = GameAction.RESET
+            action.reasoning = "Reseteando juego por estado inicial o game over"
+            print(f"\n🔄 ACCIÓN: RESET (automática)")
+            return action
+        
+        # Ejecutar el flujo cognitivo TOMAS (APEIRON → SOPHIA → LOGOS)
+        logos_response, logos_json = self.ask_gemini_analysis(latest_frame)
+        
+        # Intentar extraer la acción de la respuesta de LOGOS
+        action = None
+        if logos_json and "fase_imperium" in logos_json:
+            comando_inmediato = logos_json["fase_imperium"].get("comando_inmediato_para_entorno", {})
+            
+            if "action" in comando_inmediato:
+                action_command = comando_inmediato["action"]
+                
+                # Mapear comandos de texto a números de acción
+                action_map = {
+                    "move_up": 1,
+                    "move_down": 2, 
+                    "move_left": 3,
+                    "move_right": 4,
+                    "space": 5,
+                    "click": 6
+                }
+                
+                suggested_action_number = action_map.get(action_command.lower())
+                
+                if suggested_action_number:
+                    action = self._map_action_number_to_game_action(suggested_action_number)
+                    
+                    # Configurar reasoning con toda la información de LOGOS
+                    action.reasoning = {
+                        "tomas_flow": "APEIRON → SOPHIA → LOGOS",
+                        "objetivo_turno": logos_json.get("fase_intentio", {}).get("objetivo_principal_del_turno", ""),
+                        "decision_final": logos_json.get("fase_electio", {}).get("decision_final", {}),
+                        "comando_inmediato": comando_inmediato,
+                        "resultado_esperado": logos_json.get("fase_iudicium_predictivo", {}).get("resultado_esperado", ""),
+                        "suggested_action": suggested_action_number,
+                    }
+                    
+                    print(f"\n⚡ ACCIÓN DECIDIDA POR LOGOS: {action_command} -> {action.value}")
+                    print(f"🎯 Objetivo: {action.reasoning['objetivo_turno']}")
+                    print(f"🔮 Resultado esperado: {action.reasoning['resultado_esperado']}")
+        
+        # Fallback si no se pudo extraer acción válida de LOGOS
+        if not action:
+            print("⚠️ No se pudo extraer acción válida de LOGOS, usando acción aleatoria")
+            action = random.choice([a for a in GameAction if a is not GameAction.RESET])
+            action.reasoning = {
+                "fallback_reason": "Error al extraer acción de LOGOS",
+                "random_choice": f"Acción aleatoria: {action.value}",
+                "logos_response_available": logos_json is not None,
+            }
+            print(f"\n🎲 ACCIÓN FALLBACK: {action.value} (aleatoria)")
+        
+        if action.is_complex():
+            action.set_data(
+                {
+                    "x": random.randint(0, 63),
+                    "y": random.randint(0, 63),
+                }
+            )
+        
+        # Guardar información para la memoria episódica
+        self._last_frame_before_action = latest_frame
+        self._last_action = action
+        self._last_gemini_analysis = logos_json
+        
+        print(f"\n✅ DECISIÓN FINAL: {action.value}")
+        return action
+
+    def append_frame(self, frame: FrameData) -> None:
+        """Override para capturar cambios y actualizar memoria episódica"""
+        super().append_frame(frame)
+        
+        # Si tenemos información de la acción anterior, actualizar memoria
+        if hasattr(self, '_last_frame_before_action') and hasattr(self, '_last_action'):
+            self.add_to_episodic_memory(
+                action=self._last_action,
+                frame_before=self._last_frame_before_action,
+                frame_after=frame,
+                gemini_analysis=getattr(self, '_last_gemini_analysis', None)
+            )
+            
+            # Limpiar variables temporales
+            delattr(self, '_last_frame_before_action')
+            delattr(self, '_last_action')
+            if hasattr(self, '_last_gemini_analysis'):
+                delattr(self, '_last_gemini_analysis')
