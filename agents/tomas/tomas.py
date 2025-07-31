@@ -550,6 +550,10 @@ class Tomas(Agent):
         # Convertir el mapa a imagen
         map_image = grid_to_image(latest_frame.frame)
         
+        # Crear directorio images si no existe
+        import os
+        os.makedirs("images", exist_ok=True)
+        
         # Guardar la imagen con información del estado
         filename = f"images/tomas_map_action_{self.action_counter:03d}_score_{latest_frame.score:03d}.png"
         map_image.save(filename)
