@@ -40,7 +40,7 @@ class GeminiService:
         self.api_key = api_key or os.getenv("GEMINI_API_KEY")
         self.model = model
         self.temperature = 0.7
-        self.max_output_tokens = 10000
+        self.max_output_tokens = 65000
         
         if not self.api_key:
             raise ValueError("Se requiere GEMINI_API_KEY como variable de entorno o parámetro")
