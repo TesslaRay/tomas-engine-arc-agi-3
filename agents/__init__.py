@@ -10,6 +10,7 @@ from .templates.random_agent import Random
 from .templates.reasoning_agent import ReasoningAgent
 from .templates.smolagents import SmolCodingAgent, SmolVisionAgent
 from .tomas.tomas import Tomas
+from .tomas_engine.tomas_engine import TomasEngine
 
 load_dotenv()
 
