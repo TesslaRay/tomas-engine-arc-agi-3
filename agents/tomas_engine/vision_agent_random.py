@@ -110,10 +110,17 @@ class VisionAgentRandom(Agent):
         
         # Analizar efectos de la acción usando el estado después de la acción
         if not frame.is_empty():
-            analysis = self.spatial_perception.analyze_action_effect(
+            # Ejecutar el análisis completo (necesario para generar la interpretación de Gemini)
+            self.spatial_perception.analyze_action_effect(
                 matrix_after=frame.frame
             )
             
-            print(f"\n🧠 === ANÁLISIS DE PERCEPCIÓN ESPACIAL ===")
-            print(f"📊 {analysis}")
+            # Obtener solo la interpretación visual de Gemini
+            gemini_interpretation = self.spatial_perception.get_gemini_interpretation_only()
+            
+            print(f"\n🎨 === SPATIAL PERCEPTION MODULE ===")
+            if gemini_interpretation:
+                print(f"🤖 {gemini_interpretation}")
+            else:
+                print("⚠️ There is no visual interpretation available")
             print("=" * 45)
