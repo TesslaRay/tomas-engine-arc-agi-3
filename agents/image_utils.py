@@ -1,30 +1,47 @@
-from PIL import Image
+from PIL import Image, ImageDraw
 
 
-def grid_to_image(grid: list[list[list[int]]], scale_factor: int = 5) -> Image.Image:
+def grid_to_image(grid: list[list[list[int]]], scale_factor: int = 5, show_grid: bool = True) -> Image.Image:
     """Converts a 3D grid of integers into a PIL image, stacking grid layers horizontally.
     
     Args:
         grid: 3D grid of integers representing the game state
         scale_factor: Factor to scale up each pixel (default 5x)
+        show_grid: Whether to draw grid lines (default True)
     """
     color_map = [
-        (255, 255, 255),# 1: Negro
-        (0, 0, 170),    # 2: Azul oscuro
-        (0, 170, 0),    # 3: Verde oscuro
-        (102, 102, 102),# 4: Gris oscuro 
-        (51, 51, 51),   # 5: Gris claro 
-        (0, 0, 0),      # 6: Negro
-        (170, 85, 0),   # 7: Marrón
-        (170, 170, 170),# 8: Gris claro
-        (226, 77, 62),  # 9: Rojo medio
-        (73, 145, 247), # 10: Azul claro 
-        (85, 255, 85),  # 11: Verde claro
-        (85, 255, 255), # 12: Cian claro
-        (232, 139, 59), # 13: Naranja 
-        (255, 85, 255), # 14: Magenta claro
-        (255, 255, 85), # 15: Amarillo
-        (153, 90, 208), # 16: Morado
+        (255, 255, 255),
+        (0, 0, 170),    
+        (0, 170, 0),    
+        (102, 102, 102),
+        (51, 51, 51),   
+        (0, 0, 0),      
+        (170, 85, 0),   
+        (170, 170, 170),
+        (226, 77, 62),  
+        (73, 145, 247), 
+        (85, 255, 85),  
+        (85, 255, 255), 
+        (232, 139, 59), 
+        (255, 85, 255), 
+        (255, 255, 85), 
+        (153, 90, 208), 
+        # (0, 0, 0),
+        # (0, 0, 170),
+        # (0, 170, 0),
+        # (0, 170, 170),
+        # (170, 0, 0),
+        # (170, 0, 170),
+        # (170, 85, 0),
+        # (170, 170, 170),
+        # (85, 85, 85),
+        # (85, 85, 255),
+        # (85, 255, 85),
+        # (85, 255, 255),
+        # (255, 85, 85),
+        # (255, 85, 255),
+        # (255, 255, 85),
+        # (255, 255, 255)
     ]
 
     if not grid or not grid[0]:
@@ -60,5 +77,30 @@ def grid_to_image(grid: list[list[list[int]]], scale_factor: int = 5) -> Image.I
                         pixel_y = y * scale_factor + dy
                         if pixel_x < total_width and pixel_y < height * scale_factor:
                             pixels[pixel_x, pixel_y] = color
+
+    # Draw grid lines if requested
+    if show_grid:
+        # Create a semi-transparent overlay for the grid
+        overlay = Image.new('RGBA', image.size, (0, 0, 0, 0))
+        draw = ImageDraw.Draw(overlay)
+        grid_color = (128, 128, 128, 60)  # Semi-transparent gray
+        
+        for i in range(num_layers):
+            offset_x = i * (width * scale_factor + separator_width)
+            
+            # Draw vertical lines
+            for x in range(width + 1):
+                line_x = x * scale_factor + offset_x
+                if line_x < total_width:
+                    draw.line([(line_x, 0), (line_x, height * scale_factor - 1)], fill=grid_color, width=1)
+            
+            # Draw horizontal lines
+            for y in range(height + 1):
+                line_y = y * scale_factor
+                if line_y < height * scale_factor:
+                    draw.line([(offset_x, line_y), (offset_x + width * scale_factor - 1, line_y)], fill=grid_color, width=1)
+        
+        # Composite the overlay onto the main image
+        image = Image.alpha_composite(image.convert('RGBA'), overlay).convert('RGB')
 
     return image 

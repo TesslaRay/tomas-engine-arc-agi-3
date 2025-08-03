@@ -4,7 +4,9 @@ import random
 import re
 import time
 import base64
+import numpy as np
 from typing import Any, Dict, List, Optional
+from PIL import Image
 
 from ..agent import Agent
 from ..structs import FrameData, GameAction, GameState
@@ -262,6 +264,126 @@ class TomasEngine(Agent):
         
         print("=" * 50)
 
+    def calculate_matrix_difference(self, matrix_before: List[List[int]], matrix_after: List[List[int]]) -> np.ndarray:
+        """
+        Calcular la diferencia entre dos matrices 64x64
+        
+        Args:
+            matrix_before: Matriz del estado anterior
+            matrix_after: Matriz del estado posterior
+            
+        Returns:
+            np.ndarray con la diferencia (after - before)
+        """
+        try:
+            # Convertir a numpy arrays
+            before = np.array(matrix_before, dtype=np.int32)
+            after = np.array(matrix_after, dtype=np.int32)
+            
+            # Asegurar que sean matrices 2D (64x64)
+            if before.ndim == 3:
+                before = before.squeeze()  # Remover dimensiones de tamaño 1
+            if after.ndim == 3:
+                after = after.squeeze()  # Remover dimensiones de tamaño 1
+            
+            # Calcular diferencia
+            difference = after - before
+            
+            print(f"📊 Diferencia calculada: shape={difference.shape}, rango=[{difference.min()}, {difference.max()}]")
+            return difference
+            
+        except Exception as e:
+            print(f"❌ Error al calcular diferencia de matrices: {e}")
+            return np.zeros((64, 64), dtype=np.int32)
+
+    def visualize_matrix_difference(self, difference: np.ndarray, filename_suffix: str = "") -> Image.Image:
+        """
+        Visualizar la matriz diferencia como imagen
+        
+        Args:
+            difference: Matriz diferencia de numpy
+            filename_suffix: Sufijo para el nombre del archivo
+            
+        Returns:
+            PIL Image de la diferencia
+        """
+        try:
+            # Asegurar que la diferencia sea 2D
+            if difference.ndim == 3:
+                difference = difference.squeeze()
+            
+            if difference.ndim != 2:
+                raise ValueError(f"La matriz diferencia debe ser 2D, pero tiene shape: {difference.shape}")
+            
+            # Simplificar visualización: solo negro y blanco
+            # Cero en negro, cualquier otro valor en blanco
+            diff_rgb = np.zeros((difference.shape[0], difference.shape[1], 3), dtype=np.uint8)
+            
+            # Cualquier cambio (positivo o negativo) en blanco
+            change_mask = difference != 0
+            diff_rgb[change_mask] = [255, 255, 255]  # Blanco
+            
+            # Sin cambios (cero) en negro
+            zero_mask = difference == 0
+            diff_rgb[zero_mask] = [0, 0, 0]  # Negro
+            
+            # Crear imagen PIL
+            diff_image = Image.fromarray(diff_rgb, 'RGB')
+            
+            # Escalar la imagen 5x como en grid_to_image
+            scale_factor = 5
+            new_size = (diff_image.width * scale_factor, diff_image.height * scale_factor)
+            diff_image = diff_image.resize(new_size, Image.NEAREST)
+            
+            # Guardar imagen
+            filename = f"images/tomas_diff_action_{self.action_counter:03d}{filename_suffix}.png"
+            diff_image.save(filename)
+            
+            print(f"🎨 Imagen de diferencia guardada como: {filename}")
+            print(f"📏 Dimensiones: {diff_image.size}")
+            
+            # Estadísticas de la diferencia
+            change_count = np.sum(difference != 0)
+            no_change_count = np.sum(difference == 0)
+            
+            print(f"📈 Estadísticas de cambios:")
+            print(f"  • Cambios (blanco): {change_count} píxeles")
+            print(f"  • Sin cambios (negro): {no_change_count} píxeles")
+            
+            return diff_image
+            
+        except Exception as e:
+            print(f"❌ Error al visualizar diferencia: {e}")
+            # Retornar imagen vacía en caso de error
+            return Image.new('RGB', (320, 320), (0, 0, 0))
+
+    def display_difference_in_iterm2(self, diff_image: Image.Image) -> None:
+        """
+        Mostrar imagen de diferencia en iTerm2
+        
+        Args:
+            diff_image: PIL Image de la diferencia
+        """
+        try:
+            import io
+            
+            # Convertir imagen a bytes
+            img_buffer = io.BytesIO()
+            diff_image.save(img_buffer, format='PNG')
+            img_data = img_buffer.getvalue()
+            
+            # Codificar en base64
+            img_base64 = base64.b64encode(img_data).decode('utf-8')
+            
+            print("🔍 === DIFERENCIA ENTRE ESTADOS ===")
+            print("Blanco = Cambios | Negro = Sin cambios")
+            
+            # Secuencia de escape de iTerm2 para mostrar imagen
+            print(f"\033]1337;File=inline=1:{img_base64}\a")
+            
+        except Exception as e:
+            print(f"⚠️ Error al mostrar diferencia en iTerm2: {e}")
+
     @property
     def name(self) -> str:
         return f"{super().name}.{self.MAX_ACTIONS}"
@@ -434,10 +556,30 @@ class TomasEngine(Agent):
         
         # Si tenemos información de la acción anterior, actualizar memoria
         if hasattr(self, '_last_frame_before_action') and hasattr(self, '_last_action'):
+            frame_before = self._last_frame_before_action
+            frame_after = frame
+            
+            # Calcular y visualizar diferencia entre estados
+            if not frame_before.is_empty() and not frame_after.is_empty():
+                print(f"\n🔍 === CALCULANDO DIFERENCIA ENTRE ESTADOS ===")
+                
+                # Calcular diferencia de matrices
+                difference = self.calculate_matrix_difference(
+                    frame_before.frame, 
+                    frame_after.frame
+                )
+                
+                # Crear y mostrar imagen de diferencia
+                diff_image = self.visualize_matrix_difference(difference, "_before_after")
+                self.display_difference_in_iterm2(diff_image)
+                
+                print("=" * 50)
+            
+            # Actualizar memoria episódica
             self.add_to_episodic_memory(
                 action=self._last_action,
-                frame_before=self._last_frame_before_action,
-                frame_after=frame,
+                frame_before=frame_before,
+                frame_after=frame_after,
                 gemini_analysis=getattr(self, '_last_gemini_analysis', None)
             )
             
