@@ -11,7 +11,7 @@ from .spatial_perception_module import SpatialPerceptionModule
 class VisionAgentRandom(Agent):
     """An agent that always selects actions at random."""
 
-    MAX_ACTIONS = 5
+    MAX_ACTIONS = 3
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
@@ -74,15 +74,20 @@ class VisionAgentRandom(Agent):
             action = GameAction.RESET
         else:
             # else choose a random action that isnt reset
-            action = random.choice([a for a in GameAction if a is not GameAction.RESET])
+            # action = random.choice([a for a in GameAction if a is not GameAction.RESET])
+            action = GameAction.ACTION6
 
         if action.is_simple():
             action.reasoning = f"RNG told me to pick {action.value}"
         elif action.is_complex():
             action.set_data(
+                # {
+                #     "x": 30,
+                #     "y": 63,
+                # }
                 {
-                    "x": random.randint(0, 63),
-                    "y": random.randint(0, 63),
+                    "x": 10,
+                    "y": 32,
                 }
             )
             action.reasoning = {

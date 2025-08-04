@@ -1,9 +1,26 @@
 # numpy for matrix operations
 import numpy as np
+
+# dataclasses for object info and change analysis
 from dataclasses import dataclass
-from typing import Optional, Tuple, List
+
+# typing for type hints
+from typing import Optional, Tuple, List, Dict, Set
+
+# import gemini service and image utils
 from ..services.gemini_service import GeminiService
 from ..image_utils import grid_to_image
+
+@dataclass
+class ObjectInfo:
+    """Structure to store object information"""
+    object_id: str
+    shape: str
+    color: str
+    positions: List[Tuple[int, int]]
+    bounds: Tuple[int, int, int, int]  # (min_row, max_row, min_col, max_col)
+    region: str
+    size: int
 
 
 @dataclass
@@ -20,6 +37,11 @@ class ChangeAnalysis:
     change_positions: List[Tuple[int, int]]
     mathematical_analysis: str
     gemini_interpretation: Optional[str] = None
+    # New fields for object detection
+    changed_objects: List[ObjectInfo] = None
+    unchanged_objects: List[ObjectInfo] = None
+    all_objects_before: List[ObjectInfo] = None
+    all_objects_after: List[ObjectInfo] = None
 
 
 class SpatialPerceptionModule:
@@ -28,9 +50,9 @@ class SpatialPerceptionModule:
     # Constants
     ACTION_NAMES = {1: "up", 2: "down", 3: "left", 4: "right", 5: "space", 6: "click"}
     COLOR_NAMES = {
-        0: "white", 1: "blue", 2: "green", 3: "gray", 4: "dark-gray", 5: "black",
-        6: "brown", 7: "light-gray", 8: "red", 9: "light-blue", 10: "light-green",
-        11: "cyan", 12: "orange", 13: "magenta", 14: "yellow", 15: "purple"
+        0: "white", 1: "blue", 2: "gray", 3: "dark-gray", 4: "darker-gray", 5: "black",
+        6: "brown", 7: "light-gray", 8: "red", 9: "blue", 10: "green",
+        11: "yellow", 12: "orange", 13: "magenta", 14: "light-green", 15: "purple"
     }
     REGION_BOUNDS = {
         "top-left": (0, 21, 0, 21), "top-center": (0, 21, 21, 43), "top-right": (0, 21, 43, 64),
@@ -90,6 +112,152 @@ class SpatialPerceptionModule:
         
         return analysis
     
+    def detect_objects_in_matrix(self, matrix: List[List[int]]) -> List[ObjectInfo]:
+        """Detect all objects (connected components) in a matrix."""
+        try:
+            matrix_array = np.array(matrix)
+            if matrix_array.ndim != 2:
+                matrix_array = matrix_array.squeeze()
+                if matrix_array.ndim != 2:
+                    return []
+            
+            objects = []
+            visited = np.zeros_like(matrix_array, dtype=bool)
+            object_counter = 1
+            
+            for row in range(matrix_array.shape[0]):
+                for col in range(matrix_array.shape[1]):
+                    if not visited[row, col] and matrix_array[row, col] != 0:  # Non-background pixel
+                        # Find connected component using flood fill
+                        positions = self._flood_fill(matrix_array, visited, row, col, matrix_array[row, col])
+                        
+                        if positions:  # Only create object if positions found
+                            obj_info = self._create_object_info(positions, matrix_array[row, col], object_counter)
+                            objects.append(obj_info)
+                            object_counter += 1
+            
+            return objects
+            
+        except Exception as e:
+            print(f"❌ Error detecting objects: {e}")
+            return []
+    
+    def _flood_fill(self, matrix: np.ndarray, visited: np.ndarray, 
+                   start_row: int, start_col: int, target_color: int) -> List[Tuple[int, int]]:
+        """Flood fill algorithm to find connected components."""
+        if (start_row < 0 or start_row >= matrix.shape[0] or 
+            start_col < 0 or start_col >= matrix.shape[1] or
+            visited[start_row, start_col] or 
+            matrix[start_row, start_col] != target_color):
+            return []
+        
+        positions = []
+        stack = [(start_row, start_col)]
+        
+        while stack:
+            row, col = stack.pop()
+            
+            if (row < 0 or row >= matrix.shape[0] or 
+                col < 0 or col >= matrix.shape[1] or
+                visited[row, col] or 
+                matrix[row, col] != target_color):
+                continue
+            
+            visited[row, col] = True
+            positions.append((row, col))
+            
+            # Add 4-connected neighbors (you can change to 8-connected if needed)
+            stack.extend([(row-1, col), (row+1, col), (row, col-1), (row, col+1)])
+        
+        return positions
+    
+    def _create_object_info(self, positions: List[Tuple[int, int]], 
+                           color_value: int, object_id: int) -> ObjectInfo:
+        """Create ObjectInfo from positions and color."""
+        if not positions:
+            return None
+        
+        rows = [pos[0] for pos in positions]
+        cols = [pos[1] for pos in positions]
+        
+        min_row, max_row = min(rows), max(rows)
+        min_col, max_col = min(cols), max(cols)
+        
+        # Determine shape
+        width = max_col - min_col + 1
+        height = max_row - min_row + 1
+        size = len(positions)
+        
+        if size == 1:
+            shape = "pixel"
+        elif width == 1:
+            shape = f"vertical-line-{height}"
+        elif height == 1:
+            shape = f"horizontal-line-{width}"
+        elif size == width * height:
+            if width == height:
+                shape = f"square-{width}x{height}"
+            else:
+                shape = f"rectangle-{width}x{height}"
+        else:
+            shape = f"complex-{size}pixels"
+        
+        # Determine region
+        center_row = (min_row + max_row) // 2
+        center_col = (min_col + max_col) // 2
+        region = self._get_region_for_position(center_row, center_col)
+        
+        # Get color name
+        color_name = self.COLOR_NAMES.get(color_value % 16, f"color-{color_value}")
+        
+        return ObjectInfo(
+            object_id=f"obj_{object_id}",
+            shape=shape,
+            color=color_name,
+            positions=positions,
+            bounds=(min_row, max_row, min_col, max_col),
+            region=region,
+            size=size
+        )
+    
+    def _get_region_for_position(self, row: int, col: int) -> str:
+        """Get region name for a given position."""
+        for region_name, (row_start, row_end, col_start, col_end) in self.REGION_BOUNDS.items():
+            if row_start <= row < row_end and col_start <= col < col_end:
+                return region_name
+        return "unknown"
+    
+    def _compare_objects(self, objects_before: List[ObjectInfo], 
+                        objects_after: List[ObjectInfo]) -> Tuple[List[ObjectInfo], List[ObjectInfo]]:
+        """Compare objects between two states and return changed and unchanged objects."""
+        unchanged_objects = []
+        changed_objects = []
+        
+        # Create a set of object signatures for quick comparison
+        def object_signature(obj: ObjectInfo) -> str:
+            # Sort positions for consistent comparison
+            sorted_positions = tuple(sorted(obj.positions))
+            return f"{obj.color}_{obj.shape}_{sorted_positions}"
+        
+        before_signatures = {object_signature(obj): obj for obj in objects_before}
+        after_signatures = {object_signature(obj): obj for obj in objects_after}
+        
+        # Find unchanged objects (exist in both states with same signature)
+        for signature, obj_before in before_signatures.items():
+            if signature in after_signatures:
+                # Object unchanged - use the "after" version for consistency
+                unchanged_objects.append(after_signatures[signature])
+            else:
+                # Object changed or disappeared
+                changed_objects.append(obj_before)
+        
+        # Find new objects (exist in after but not in before)
+        for signature, obj_after in after_signatures.items():
+            if signature not in before_signatures:
+                changed_objects.append(obj_after)
+        
+        return changed_objects, unchanged_objects
+    
     def get_action_name(self, action_number: int) -> str:
         """Get the name of an action by its number."""
         return self.ACTION_NAMES.get(action_number, f"action {action_number}")
@@ -148,6 +316,13 @@ class SpatialPerceptionModule:
             if not self._validate_matrices(before_array, after_array, difference_matrix):
                 return self._create_empty_analysis()
             
+            # Detect all objects in both matrices
+            objects_before = self.detect_objects_in_matrix(matrix_before)
+            objects_after = self.detect_objects_in_matrix(matrix_after)
+            
+            # Compare objects to find changed and unchanged
+            changed_objects, unchanged_objects = self._compare_objects(objects_before, objects_after)
+            
             # Calculate basic metrics
             change_positions = list(zip(*np.where(difference_matrix != 0)))
             total_changes = len(change_positions)
@@ -171,6 +346,9 @@ class SpatialPerceptionModule:
                 before_array.tolist(), after_array.tolist(), change_positions
             )
             
+            # Add object analysis
+            object_analysis = self._generate_object_analysis(changed_objects, unchanged_objects)
+            
             change_analysis = ChangeAnalysis(
                 total_changes=total_changes,
                 change_percentage=change_percentage,
@@ -181,7 +359,11 @@ class SpatialPerceptionModule:
                 near_coordinates=near_coordinates,
                 directional_consistency=directional_consistency,
                 change_positions=change_positions,
-                mathematical_analysis=mathematical_analysis + "\n\n" + detailed_changes
+                mathematical_analysis=mathematical_analysis + "\n\n" + detailed_changes + "\n\n" + object_analysis,
+                changed_objects=changed_objects,
+                unchanged_objects=unchanged_objects,
+                all_objects_before=objects_before,
+                all_objects_after=objects_after
             )
             
             # Add Gemini interpretation if available
@@ -199,6 +381,40 @@ class SpatialPerceptionModule:
         except Exception as e:
             print(f"❌ Error in detailed analysis: {e}")
             return self._create_empty_analysis()
+    
+    def _generate_object_analysis(self, changed_objects: List[ObjectInfo], 
+                                 unchanged_objects: List[ObjectInfo]) -> str:
+        """Generate detailed object analysis."""
+        analysis = "🔍 OBJECT ANALYSIS:\n"
+        
+        # Changed objects
+        if changed_objects:
+            analysis += f"📝 CHANGED OBJECTS ({len(changed_objects)} total):\n"
+            for i, obj in enumerate(changed_objects, 1):
+                analysis += f"  {i}. {obj.object_id}: {obj.shape} {obj.color} in {obj.region} ({obj.size} pixels)\n"
+                analysis += f"     Bounds: rows {obj.bounds[0]}-{obj.bounds[1]}, cols {obj.bounds[2]}-{obj.bounds[3]}\n"
+        else:
+            analysis += "📝 CHANGED OBJECTS: None\n"
+        
+        # Unchanged objects
+        if unchanged_objects:
+            analysis += f"\n⚡ UNCHANGED OBJECTS ({len(unchanged_objects)} total):\n"
+            for i, obj in enumerate(unchanged_objects, 1):
+                analysis += f"  {i}. {obj.object_id}: {obj.shape} {obj.color} in {obj.region} ({obj.size} pixels)\n"
+                analysis += f"     Bounds: rows {obj.bounds[0]}-{obj.bounds[1]}, cols {obj.bounds[2]}-{obj.bounds[3]}\n"
+        else:
+            analysis += "\n⚡ UNCHANGED OBJECTS: None\n"
+        
+        # Summary
+        total_objects = len(changed_objects) + len(unchanged_objects)
+        if total_objects > 0:
+            unchanged_percentage = (len(unchanged_objects) / total_objects) * 100
+            analysis += f"\n📊 OBJECT SUMMARY:\n"
+            analysis += f"  • Total objects detected: {total_objects}\n"
+            analysis += f"  • Objects that changed: {len(changed_objects)}\n"
+            analysis += f"  • Objects that remained: {len(unchanged_objects)} ({unchanged_percentage:.1f}%)\n"
+        
+        return analysis
     
     def _classify_changes(self, before_array: np.ndarray, after_array: np.ndarray, 
                          change_positions: List[Tuple[int, int]]) -> dict:
@@ -465,10 +681,13 @@ class SpatialPerceptionModule:
             self._display_image_in_iterm2(image_after)
             print("=" * 50)
             
-            prompt = self._build_gemini_prompt(action_name, analysis)
+            prompt = self._build_enhanced_gemini_prompt(action_name, analysis)
             
             print(f"\n🤖 === CONSULTING GEMINI FOR VISUAL ANALYSIS ===")
             print(f"🔄 Sending before/after images for action: {action_name}")
+
+            print(f"\n🤖 === PROMPT ===")   
+            print(prompt)
             
             response = self.gemini_service.generate_with_images_sync(
                 prompt=prompt,
@@ -486,72 +705,164 @@ class SpatialPerceptionModule:
             print(f"❌ Error in Gemini visual interpretation: {e}")
             return "Error getting visual interpretation"
     
-    def _build_gemini_prompt(self, action_name: str, analysis: ChangeAnalysis) -> str:
-        """Build the prompt for Gemini analysis."""
+    def _build_enhanced_gemini_prompt(self, action_name: str, analysis: ChangeAnalysis) -> str:
+        """Build the enhanced prompt for Gemini analysis including unchanged objects."""
+        changed_objects_info = ""
+        unchanged_objects_info = ""
+        
+        if analysis.changed_objects:
+            changed_objects_info = "\n### CHANGED OBJECTS:\n"
+            for obj in analysis.changed_objects:
+                changed_objects_info += f"- {obj.object_id}: {obj.shape} {obj.color} in {obj.region} ({obj.size} pixels)\n"
+        
+        if analysis.unchanged_objects:
+            unchanged_objects_info = "\n### UNCHANGED OBJECTS:\n"
+            for obj in analysis.unchanged_objects:
+                unchanged_objects_info += f"- {obj.object_id}: {obj.shape} {obj.color} in {obj.region} ({obj.size} pixels)\n"
+        
         return f"""
-Act as an INTELLIGENT VISUAL PATTERN ANALYZER that interprets image changes:
+## ROLE: INTELLIGENT VISUAL PATTERN ANALYZER
 
-## PROVIDED IMAGES:
-- **IMAGE 1**: BEFORE "{action_name}" action  
+Interpret pixel-level changes as abstract objects and transformations for ARC AGI reasoning.
+
+## PROVIDED DATA:
+
+- **IMAGE 1**: BEFORE "{action_name}" action
 - **IMAGE 2**: AFTER "{action_name}" action
+- **MATHEMATICAL DATA**: Complete list of pixel changes
+- **OBJECT DATA**: Pre-identified objects (changed and unchanged)
 
 ## EXACT MATHEMATICAL DATA:
 {analysis.mathematical_analysis}
 
-## ANALYSIS INSTRUCTIONS:
+{changed_objects_info}
 
-### 1. OBJECT/SHAPE IDENTIFICATION
-- Analyze the provided pixel-by-pixel changes
-- **GROUP** contiguous pixels of same color that change together
-- **IDENTIFY** geometric shapes (squares, rectangles, lines)
-- **RECOGNIZE** composite objects (e.g., blue square + orange square = bicolor object)
+{unchanged_objects_info}
 
-### 2. MOVEMENT DETECTION
-- If pixels **disappear** in zone A AND **appear** in adjacent zone B → it's MOVEMENT
-- If pixels change color without spatial pattern → it's TRANSFORMATION
-- **Calculate movement direction** based on coordinate changes
+## ENHANCED PERCEPTION TASKS:
 
-### 3. REQUIRED RESPONSE FORMAT:
+### 1. OBJECT VALIDATION & REFINEMENT
+
+- **Verify detected objects**: Confirm if the automatically detected objects make visual sense
+- **Merge related objects**: Group objects that should be considered as single entities
+- **Split complex objects**: Identify if detected objects should be separated
+- **Identify missed objects**: Find objects that weren't automatically detected
+- **Classify object relationships**: Parent-child, grouped, or independent objects
+
+### 2. TRANSFORMATION CATEGORIZATION
+
+Classify each detected change into abstract categories:
+
+- **TRANSLATION**: Object moved without changing shape/color
+- **ROTATION**: Object rotated around a point
+- **REFLECTION**: Object mirrored across an axis
+- **SCALING**: Object size changed proportionally
+- **MATERIALIZATION**: New object appeared
+- **DEMATERIALIZATION**: Object disappeared
+- **COLOR_CHANGE**: Object changed color only
+- **SHAPE_CHANGE**: Object changed form
+- **FRAGMENTATION**: Object broke into pieces
+- **FUSION**: Multiple objects combined
+- **CLEARING**: Area reset to background
+- **FILLING**: Background area filled with color
+
+### 3. UNCHANGED OBJECTS ANALYSIS
+
+For objects that remained unchanged:
+- **Stability analysis**: Why these objects didn't change
+- **Positional importance**: Strategic locations or patterns
+- **Interaction barriers**: Objects that block or influence changes
+- **Reference points**: Objects that serve as anchors or guides
+
+### 4. SPATIAL RELATIONSHIP ANALYSIS
+
+- **Alignment**: Objects sharing rows/columns/diagonals
+- **Proximity**: Distance relationships between objects
+- **Containment**: Objects inside/outside other objects
+- **Symmetry**: Reflective or rotational symmetries
+- **Grid patterns**: Regular spacing or arrangements
+- **Interaction zones**: Areas where changed and unchanged objects meet
+
+## REQUIRED OUTPUT FORMAT:
+
 ```
-🎯 DETECTED OBJECTS:
-- [Object description]: [shape] of [color] in region [location]
+🎯 DETECTED OBJECTS (VALIDATED):
+- [Object ID]: [refined shape description] of [color] at region [coordinates]
 
-🔄 DETECTED MOVEMENTS:
-- [Object]: moved [distance] pixels toward [direction]
-- [Object]: color changed from [color1] to [color2]
+🔄 TRANSFORMATION SUMMARY:
+- [Object ID]: [TRANSFORMATION_TYPE] - [specific description]
 
-📍 SPECIFIC CHANGES:
-- Region [location]: [visual change description]
+⚡ UNCHANGED OBJECTS ANALYSIS:
+- [Object ID]: [reason for stability] - [role in the pattern]
+
+📐 SPATIAL RELATIONSHIPS:
+- [relationship type]: [description including changed/unchanged interactions]
+
+📊 CHANGE STATISTICS:
+- Total objects detected: [number]
+- Objects that changed: [number]
+- Objects that remained stable: [number]
+- Transformation types: [list unique types]
+- Spatial extent: [affected regions]
 ```
 
-### 4. INTERPRETATION RULES:
-✅ **YOU SHOULD:**
-- Group contiguous pixels that change together as single objects
-- Infer movements when there's disappearance + appearance in nearby zones
-- Describe simple geometric shapes (square, rectangle, line)
-- Use coordinates to calculate movement directions
+## ABSTRACTION RULES:
 
-❌ **YOU SHOULD NOT:**
-- Invent changes not present in mathematical data
-- Use complex semantic terms ("characters", "buildings")
-- Describe each pixel individually if they form coherent shapes
+✅ **DO:**
 
-## IDEAL RESPONSE EXAMPLE:
+- Group pixels by **spatial continuity and structural coherence**
+- Recognize **multi-color objects** as single entities (striped bars, patterned blocks)
+- Use standard shape names (rectangle, square, line, L-shape, etc.)
+- Identify transformation types clearly
+- Describe spatial relationships objectively
+- Focus on structural and geometric properties
+- **Analyze the role of unchanged objects in the overall pattern**
+- **Consider how unchanged objects might influence or constrain changes**
+
+❌ **DON'T:**
+
+- Infer game rules or mechanics
+- Predict future states
+- Use semantic interpretations ("character", "building")
+- Describe individual pixels unless they're isolated objects
+- Make assumptions about causality
+- Ignore unchanged objects in your analysis
+
+## EXAMPLE OUTPUT:
+
 ```
-🎯 DETECTED OBJECTS:
-- Small square: 1x1 purple pixel in top-left corner (2,2)
-- Horizontal rectangle: 8x2 orange pixels in bottom-center region (48,40 to 49,47)
+🎯 DETECTED OBJECTS (VALIDATED):
+- Block_A: 4x8 solid rectangle of yellow at (40,40)-(43,47)
+- Bar_B: 4x24 solid rectangle of gray at (32,0)-(35,23)
+- Marker_C: 1x1 pixel of light-green at (0,63)
+- Anchor_D: 2x2 square of blue at (10,10)-(11,11) [UNCHANGED]
 
-🔄 DETECTED MOVEMENTS:  
-- Purple square: disappeared (changed to gray)
-- Orange rectangle: moved 8 pixels rightward
+🔄 TRANSFORMATION SUMMARY:
+- Block_A: TRANSLATION - moved 8 pixels upward
+- Bar_B: MATERIALIZATION - appeared in left region
+- Large_Area: CLEARING - rectangular region reset to white background
+- Marker_C: COLOR_CHANGE - light-green to white
 
-📍 SPECIFIC CHANGES:
-- Region (2,2): purple square disappeared
-- Bottom-center region: orange rectangle shifted horizontally right
+⚡ UNCHANGED OBJECTS ANALYSIS:
+- Anchor_D: POSITIONAL_ANCHOR - serves as reference point in top-left
+- Border_Objects: STRUCTURAL_BARRIERS - define boundaries for movement
+- Pattern_Core: STABILITY_CENTER - maintains grid structure
+
+📐 SPATIAL RELATIONSHIPS:
+- Block_A maintains horizontal alignment with Anchor_D after translation
+- Bar_B aligns with grid structure defined by unchanged objects
+- Cleared area encompasses previous object positions but avoids stable anchors
+- Unchanged objects form a protective boundary around changed region
+
+📊 CHANGE STATISTICS:
+- Total objects detected: 8
+- Objects that changed: 4
+- Objects that remained stable: 4 (50%)
+- Transformation types: TRANSLATION, MATERIALIZATION, CLEARING, COLOR_CHANGE
+- Spatial extent: 6 distinct regions with 2 stable anchor regions
 ```
 
-**GOAL**: Provide intuitive visual description that a human would understand when viewing the images.
+**GOAL**: Provide comprehensive object analysis including both changed and unchanged elements, their interactions, and their roles in the overall pattern for downstream ARC reasoning.
 """
     
     def _display_image_in_iterm2(self, image) -> None:
@@ -596,6 +907,71 @@ Act as an INTELLIGENT VISUAL PATTERN ANALYZER that interprets image changes:
         
         return None
     
+    def get_unchanged_objects_only(self) -> Optional[List[ObjectInfo]]:
+        """Get only the unchanged objects from the last analysis."""
+        if not self.action_history:
+            return None
+        
+        last_analysis = self.action_history[-1][3]  # ChangeAnalysis object
+        if last_analysis:
+            return last_analysis.unchanged_objects
+        
+        return None
+    
+    def get_changed_objects_only(self) -> Optional[List[ObjectInfo]]:
+        """Get only the changed objects from the last analysis."""
+        if not self.action_history:
+            return None
+        
+        last_analysis = self.action_history[-1][3]  # ChangeAnalysis object
+        if last_analysis:
+            return last_analysis.changed_objects
+        
+        return None
+    
+    def get_all_objects_summary(self) -> Optional[str]:
+        """Get a summary of all objects (changed and unchanged) from the last analysis."""
+        if not self.action_history:
+            return None
+        
+        last_analysis = self.action_history[-1][3]  # ChangeAnalysis object
+        if not last_analysis:
+            return None
+        
+        summary = "📋 COMPLETE OBJECT SUMMARY:\n\n"
+        
+        # Changed objects
+        if last_analysis.changed_objects:
+            summary += f"🔄 CHANGED OBJECTS ({len(last_analysis.changed_objects)}):\n"
+            for i, obj in enumerate(last_analysis.changed_objects, 1):
+                summary += f"  {i}. {obj.object_id}: {obj.shape} {obj.color} in {obj.region}\n"
+        else:
+            summary += "🔄 CHANGED OBJECTS: None\n"
+        
+        summary += "\n"
+        
+        # Unchanged objects
+        if last_analysis.unchanged_objects:
+            summary += f"⚡ UNCHANGED OBJECTS ({len(last_analysis.unchanged_objects)}):\n"
+            for i, obj in enumerate(last_analysis.unchanged_objects, 1):
+                summary += f"  {i}. {obj.object_id}: {obj.shape} {obj.color} in {obj.region}\n"
+        else:
+            summary += "⚡ UNCHANGED OBJECTS: None\n"
+        
+        # Statistics
+        total_changed = len(last_analysis.changed_objects) if last_analysis.changed_objects else 0
+        total_unchanged = len(last_analysis.unchanged_objects) if last_analysis.unchanged_objects else 0
+        total_objects = total_changed + total_unchanged
+        
+        if total_objects > 0:
+            unchanged_percentage = (total_unchanged / total_objects) * 100
+            summary += f"\n📊 STATISTICS:\n"
+            summary += f"  • Total objects: {total_objects}\n"
+            summary += f"  • Changed: {total_changed} ({100-unchanged_percentage:.1f}%)\n"
+            summary += f"  • Unchanged: {total_unchanged} ({unchanged_percentage:.1f}%)\n"
+        
+        return summary
+    
     def _calculate_matrix_difference(self, matrix_before: List[List[int]], 
                                    matrix_after: List[List[int]]) -> np.ndarray:
         """Calculate the difference between two matrices."""
@@ -631,7 +1007,9 @@ Act as an INTELLIGENT VISUAL PATTERN ANALYZER that interprets image changes:
             total_changes=0, change_percentage=0.0, appearances=0, disappearances=0,
             transformations=0, regions_affected=[], near_coordinates=False,
             directional_consistency=None, change_positions=[], 
-            mathematical_analysis="Error in mathematical analysis"
+            mathematical_analysis="Error in mathematical analysis",
+            changed_objects=[], unchanged_objects=[], 
+            all_objects_before=[], all_objects_after=[]
         )
     
     def get_action_history(self) -> List[Tuple[int, Optional[Tuple[int, int]], str, Optional[ChangeAnalysis]]]:
