@@ -72,6 +72,9 @@ class SpatialPerceptionModule:
         except Exception as e:
             print(f"⚠️ Error initializing Gemini in SpatialPerceptionModule: {e}")
             self.gemini_service = None
+            
+        # Store previous Gemini response for consistency
+        self.previous_gemini_response = None
     
     
     def analyze_action_effect(self, matrix_before: List[List[int]], matrix_after: List[List[int]], 
@@ -202,7 +205,7 @@ class SpatialPerceptionModule:
         color_name = self.COLOR_NAMES.get(color_value % 16, f"color-{color_value}")
         
         return ObjectInfo(
-            object_id=f"obj_{object_id}",
+            object_id=f"OBJ_{object_id}",
             shape=shape,
             color=color_name,
             positions=positions,
@@ -542,162 +545,13 @@ class SpatialPerceptionModule:
                 after_color = self.COLOR_NAMES.get(after_val % 16, f"color-{after_val}")
                 
                 specific_changes.append(f"({row},{col}): {before_color} → {after_color}")
-        
-        movement_analysis = self._detect_movement_groups(matrix_before, matrix_after, change_positions)
-        
+                
         detailed_report = f"🔍 SPECIFIC CHANGES DETECTED:\n"
         detailed_report += f"📍 COMPLETE LIST OF CHANGES ({len(specific_changes)} total):\n"
         for i, change in enumerate(specific_changes, 1):
             detailed_report += f"  {i}. {change}\n"
         
-        if movement_analysis:
-            detailed_report += f"\n🔄 MOVEMENT ANALYSIS:\n{movement_analysis}"
-        
-        return detailed_report
-    
-    def _detect_movement_groups(self, matrix_before: List[List[int]], 
-                              matrix_after: List[List[int]], 
-                              change_positions: List[Tuple[int, int]]) -> str:
-        """Detect groups of pixels that move together."""
-        before_array = np.array(matrix_before)
-        after_array = np.array(matrix_after)
-        
-        # Find disappearances, appearances, and color changes
-        disappearances = []
-        appearances = []
-        color_changes = []
-        
-        for row, col in change_positions:
-            if (0 <= row < before_array.shape[0] and 0 <= col < before_array.shape[1]):
-                before_val = before_array[row, col]
-                after_val = after_array[row, col]
-                
-                if before_val != 0 and after_val == 0:
-                    color_name = self.COLOR_NAMES.get(before_val % 16, f"color-{before_val}")
-                    disappearances.append((row, col, color_name, before_val))
-                elif before_val == 0 and after_val != 0:
-                    color_name = self.COLOR_NAMES.get(after_val % 16, f"color-{after_val}")
-                    appearances.append((row, col, color_name, after_val))
-                elif before_val != 0 and after_val != 0:
-                    before_color = self.COLOR_NAMES.get(before_val % 16, f"color-{before_val}")
-                    after_color = self.COLOR_NAMES.get(after_val % 16, f"color-{after_val}")
-                    color_changes.append((row, col, before_color, after_color))
-        
-        # If we have both disappearances and appearances, analyze for movements
-        if disappearances and appearances:
-            # Group by colors and analyze movements
-            disappeared_by_color = self._group_by_color(disappearances)
-            appeared_by_color = self._group_by_color(appearances)
-            
-            movement_report = "🚀 POTENTIAL MOVEMENTS DETECTED:\n"
-            movements_found = False
-            
-            for color in disappeared_by_color:
-                if color in appeared_by_color:
-                    movement_analysis = self._analyze_color_movement(
-                        disappeared_by_color[color], appeared_by_color[color], color
-                    )
-                    if movement_analysis:
-                        movement_report += movement_analysis
-                        movements_found = True
-            
-            if movements_found:
-                return movement_report
-        
-        # If only color changes (no disappearances/appearances), that's not movement
-        if color_changes and not disappearances and not appearances:
-            return "Only color transformations detected, no spatial movements"
-        
-        # If only disappearances or only appearances, not paired movements
-        if disappearances and not appearances:
-            return f"Objects disappeared ({len(disappearances)} pixels) but no new objects appeared"
-        
-        if appearances and not disappearances:
-            return f"New objects appeared ({len(appearances)} pixels) but nothing disappeared"
-        
-        return "No clear movement patterns detected"
-    
-    def _group_by_color(self, positions: List[Tuple[int, int, str, int]]) -> dict:
-        """Group positions by color."""
-        grouped = {}
-        for row, col, color, val in positions:
-            if color not in grouped:
-                grouped[color] = []
-            grouped[color].append((row, col, val))
-        return grouped
-    
-    def _analyze_color_movement(self, disappeared: List[Tuple[int, int, int]], 
-                               appeared: List[Tuple[int, int, int]], color: str) -> str:
-        """Analyze movement for a specific color."""
-        if not disappeared or not appeared:
-            return ""
-        
-        # Try to match disappeared pixels with appeared pixels based on proximity
-        matched_movements = []
-        unmatched_disappeared = disappeared.copy()
-        unmatched_appeared = appeared.copy()
-        
-        # Simple greedy matching - for each disappeared pixel, find closest appeared pixel
-        for dis_row, dis_col, _ in disappeared:
-            best_match = None
-            best_distance = float('inf')
-            
-            for app_row, app_col, app_val in unmatched_appeared:
-                # Calculate Manhattan distance
-                distance = abs(dis_row - app_row) + abs(dis_col - app_col)
-                if distance < best_distance:
-                    best_distance = distance
-                    best_match = (app_row, app_col, app_val)
-            
-            if best_match and best_distance <= 10:  # Max reasonable movement distance
-                matched_movements.append(((dis_row, dis_col), (best_match[0], best_match[1])))
-                unmatched_appeared.remove(best_match)
-        
-        if not matched_movements:
-            # No clear movement pattern found
-            return f"  • {color}: {len(disappeared)} pixels disappeared and {len(appeared)} appeared (no clear movement pattern)\n"
-        
-        # Calculate movement statistics
-        total_row_shift = sum(to_pos[0] - from_pos[0] for from_pos, to_pos in matched_movements)
-        total_col_shift = sum(to_pos[1] - from_pos[1] for from_pos, to_pos in matched_movements)
-        
-        avg_row_shift = total_row_shift / len(matched_movements)
-        avg_col_shift = total_col_shift / len(matched_movements)
-        
-        direction = self._format_direction(avg_row_shift, avg_col_shift)
-        
-        movement_report = f"  • {color}: {len(matched_movements)} pixels moved {direction}\n"
-        
-        # Show individual movements for small numbers
-        if len(matched_movements) <= 5:
-            for from_pos, to_pos in matched_movements:
-                movement_report += f"    ({from_pos[0]},{from_pos[1]}) → ({to_pos[0]},{to_pos[1]})\n"
-        else:
-            movement_report += f"    Average shift: ({avg_row_shift:.1f}, {avg_col_shift:.1f})\n"
-        
-        # Note unmatched pixels
-        if unmatched_disappeared:
-            movement_report += f"    Also: {len(unmatched_disappeared)} pixels disappeared without clear destination\n"
-        if unmatched_appeared:
-            movement_report += f"    Also: {len(unmatched_appeared)} pixels appeared without clear origin\n"
-        
-        return movement_report
-    
-    def _format_direction(self, row_shift: float, col_shift: float) -> str:
-        """Format movement direction as string."""
-        direction_parts = []
-        
-        if row_shift > 0:
-            direction_parts.append(f"{abs(row_shift):.1f} downward")
-        elif row_shift < 0:
-            direction_parts.append(f"{abs(row_shift):.1f} upward")
-        
-        if col_shift > 0:
-            direction_parts.append(f"{abs(col_shift):.1f} rightward")
-        elif col_shift < 0:
-            direction_parts.append(f"{abs(col_shift):.1f} leftward")
-        
-        return ", ".join(direction_parts)
+        return detailed_report 
     
     def _get_gemini_visual_interpretation(self, matrix_before: List[List[int]], 
                                          matrix_after: List[List[int]], 
@@ -748,7 +602,11 @@ class SpatialPerceptionModule:
             print(f"📝 Tokens used: {response.usage.get('total_tokens', 'N/A') if hasattr(response, 'usage') and response.usage else 'N/A'}")
             print("=" * 50)
             
-            return response.content.strip()
+            # Store this response for next analysis context
+            gemini_response = response.content.strip()
+            self.previous_gemini_response = gemini_response
+            
+            return gemini_response
             
         except Exception as e:
             print(f"❌ Error in Gemini visual interpretation: {e}")
@@ -758,6 +616,7 @@ class SpatialPerceptionModule:
         """Build the enhanced prompt for Gemini analysis including unchanged objects."""
         changed_objects_info = ""
         unchanged_objects_info = ""
+        previous_response_info = ""
         
         if analysis.changed_objects:
             changed_objects_info = "\n### CHANGED OBJECTS:\n"
@@ -768,6 +627,14 @@ class SpatialPerceptionModule:
             unchanged_objects_info = "\n### UNCHANGED OBJECTS:\n"
             for obj in analysis.unchanged_objects:
                 unchanged_objects_info += f"- {obj.object_id}: {obj.shape} {obj.color} in {obj.region} ({obj.size} pixels)\n"
+        
+        if self.previous_gemini_response:
+            previous_response_info = f"\n### PREVIOUS ANALYSIS CONTEXT:\n"
+            previous_response_info += f"In your previous analysis, you detected these objects:\n\n"
+            previous_response_info += f"{self.previous_gemini_response}\n\n"
+            previous_response_info += f"**IMPORTANT**: Please maintain consistent object names and IDs when the same objects appear again. "
+            previous_response_info += f"If you see objects that match previous ones, use the same naming convention. "
+            previous_response_info += f"**Always use UPPERCASE for object names** (e.g., BLOCK_A, BAR_B, MARKER_C).\n"
         
         return f"""
 ## ROLE: INTELLIGENT VISUAL PATTERN ANALYZER
@@ -780,6 +647,8 @@ Interpret pixel-level changes as abstract objects and transformations for ARC AG
 - **IMAGE 2**: AFTER "{action_name}" action
 - **MATHEMATICAL DATA**: Complete list of pixel changes
 - **OBJECT DATA**: Pre-identified objects (changed and unchanged)
+
+{previous_response_info}
 
 ## EXACT MATHEMATICAL DATA:
 {analysis.mathematical_analysis}
@@ -862,6 +731,7 @@ For objects that remained unchanged:
 - Group pixels by **spatial continuity and structural coherence**
 - Recognize **multi-color objects** as single entities (striped bars, patterned blocks)
 - Use standard shape names (rectangle, square, line, L-shape, etc.)
+- **Use UPPERCASE for all object names** (BLOCK_A, BAR_B, MARKER_C, etc.)
 - Identify transformation types clearly
 - Describe spatial relationships objectively
 - Focus on structural and geometric properties
@@ -881,25 +751,25 @@ For objects that remained unchanged:
 
 ```
 🎯 DETECTED OBJECTS (VALIDATED):
-- Block_A: 4x8 solid rectangle of yellow at (40,40)-(43,47)
-- Bar_B: 4x24 solid rectangle of gray at (32,0)-(35,23)
-- Marker_C: 1x1 pixel of light-green at (0,63)
-- Anchor_D: 2x2 square of blue at (10,10)-(11,11) [UNCHANGED]
+- BLOCK_A: 4x8 solid rectangle of yellow at (40,40)-(43,47)
+- BAR_B: 4x24 solid rectangle of gray at (32,0)-(35,23)
+- MARKER_C: 1x1 pixel of light-green at (0,63)
+- ANCHOR_D: 2x2 square of blue at (10,10)-(11,11) [UNCHANGED]
 
 🔄 TRANSFORMATION SUMMARY:
-- Block_A: TRANSLATION - moved 8 pixels upward
-- Bar_B: MATERIALIZATION - appeared in left region
-- Large_Area: CLEARING - rectangular region reset to white background
-- Marker_C: COLOR_CHANGE - light-green to white
+- BLOCK_A: TRANSLATION - moved 8 pixels upward
+- BAR_B: MATERIALIZATION - appeared in left region
+- LARGE_AREA: CLEARING - rectangular region reset to white background
+- MARKER_C: COLOR_CHANGE - light-green to white
 
 ⚡ UNCHANGED OBJECTS ANALYSIS:
-- Anchor_D: POSITIONAL_ANCHOR - serves as reference point in top-left
-- Border_Objects: STRUCTURAL_BARRIERS - define boundaries for movement
-- Pattern_Core: STABILITY_CENTER - maintains grid structure
+- ANCHOR_D: POSITIONAL_ANCHOR - serves as reference point in top-left
+- BORDER_OBJECTS: STRUCTURAL_BARRIERS - define boundaries for movement
+- PATTERN_CORE: STABILITY_CENTER - maintains grid structure
 
 📐 SPATIAL RELATIONSHIPS:
-- Block_A maintains horizontal alignment with Anchor_D after translation
-- Bar_B aligns with grid structure defined by unchanged objects
+- BLOCK_A maintains horizontal alignment with ANCHOR_D after translation
+- BAR_B aligns with grid structure defined by unchanged objects
 - Cleared area encompasses previous object positions but avoids stable anchors
 - Unchanged objects form a protective boundary around changed region
 

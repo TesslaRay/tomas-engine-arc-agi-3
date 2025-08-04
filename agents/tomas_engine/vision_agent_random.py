@@ -15,7 +15,7 @@ from .spatial_perception_module import SpatialPerceptionModule
 class VisionAgentRandom(Agent):
     """An agent that always selects actions at random."""
 
-    MAX_ACTIONS = 3
+    MAX_ACTIONS = 5
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
@@ -32,6 +32,10 @@ class VisionAgentRandom(Agent):
         self.previous_matrix = None
         self.pending_action = None
         self.pending_coordinates = None
+        
+        # Test sequence: left, up, up, up, up
+        self.test_actions = [3, 1, 1, 1, 1]
+        self.action_index = 0
 
     @property
     def name(self) -> str:
@@ -84,9 +88,20 @@ class VisionAgentRandom(Agent):
             # add a small delay before resetting after GAME_OVER to avoid timeout
             action = GameAction.RESET
         else:
-            # else choose a random action that isnt reset
-            action = random.choice([a for a in GameAction if a is not GameAction.RESET])
-            # action = GameAction.ACTION6
+            # Use predefined test sequence instead of random
+            if self.action_index < len(self.test_actions):
+                action_number = self.test_actions[self.action_index]
+                self.action_index += 1
+                
+                # Map numbers to GameAction
+                action_map = {1: GameAction.ACTION1, 2: GameAction.ACTION2, 3: GameAction.ACTION3, 
+                             4: GameAction.ACTION4, 5: GameAction.ACTION5, 6: GameAction.ACTION6}
+                action = action_map.get(action_number, GameAction.ACTION1)
+                
+                print(f"🎯 Test sequence: Action {action_number} ({self.action_index}/{len(self.test_actions)})")
+            else:
+                # Fall back to random if sequence is exhausted
+                action = random.choice([a for a in GameAction if a is not GameAction.RESET])
 
         if action.is_simple():
             action.reasoning = f"RNG told me to pick {action.value}"
@@ -126,7 +141,7 @@ class VisionAgentRandom(Agent):
                 matrix_after=frame.frame,
                 action=self.pending_action,
                 coordinates=self.pending_coordinates,
-                include_visual_interpretation=False
+                include_visual_interpretation=True
             )
             
             print(f"\n🎨 === SPATIAL PERCEPTION MODULE ===")
