@@ -4,7 +4,11 @@ from typing import Any
 
 from ..agent import Agent
 from ..structs import FrameData, GameAction, GameState
+
+# utils
 from ..image_utils import grid_to_image
+
+# modules
 from .spatial_perception_module import SpatialPerceptionModule
 
 
@@ -17,10 +21,17 @@ class VisionAgentRandom(Agent):
         super().__init__(*args, **kwargs)
         seed = int(time.time() * 1000000) + hash(self.game_id) % 1000000
         random.seed(seed)
+
+        print(f"🤖 Starting Vision Agent Random")
         
         # Inicializar el módulo de percepción espacial
         self.spatial_perception = SpatialPerceptionModule()
-        print("✅ Módulo de percepción espacial inicializado")
+        print("✅ Spatial Perception Module initialized")
+        
+        # Store minimal state for matrix comparison (not full history)
+        self.previous_matrix = None
+        self.pending_action = None
+        self.pending_coordinates = None
 
     @property
     def name(self) -> str:
@@ -74,38 +85,30 @@ class VisionAgentRandom(Agent):
             action = GameAction.RESET
         else:
             # else choose a random action that isnt reset
-            # action = random.choice([a for a in GameAction if a is not GameAction.RESET])
-            action = GameAction.ACTION6
+            action = random.choice([a for a in GameAction if a is not GameAction.RESET])
+            # action = GameAction.ACTION6
 
         if action.is_simple():
             action.reasoning = f"RNG told me to pick {action.value}"
         elif action.is_complex():
-            action.set_data(
-                # {
-                #     "x": 30,
-                #     "y": 63,
-                # }
-                {
-                    "x": 10,
-                    "y": 32,
-                }
-            )
+            action.set_data({
+                "x": 30,
+                "y": 63,
+            })
             action.reasoning = {
                 "desired_action": f"{action.value}",
                 "my_reason": "RNG said so!",
             }
         
-        # Preparar análisis de percepción espacial ANTES de ejecutar la acción
+        # Store current state for analysis after action execution
         if not latest_frame.is_empty():
-            coordinates = None
-            if action.is_complex() and hasattr(action, 'data'):
-                coordinates = (action.data.get('x'), action.data.get('y'))
+            self.previous_matrix = [row[:] for row in latest_frame.frame]  # Deep copy
+            self.pending_action = action.value
             
-            self.spatial_perception.prepare_action_analysis(
-                matrix_before=latest_frame.frame,
-                action=action.value,
-                coordinates=coordinates
-            )
+            # Extract coordinates for complex actions
+            self.pending_coordinates = None
+            if action.is_complex() and hasattr(action, 'data'):
+                self.pending_coordinates = (action.data.get('x'), action.data.get('y'))
         
         return action
 
@@ -113,19 +116,28 @@ class VisionAgentRandom(Agent):
         """Override para analizar efectos de acciones con percepción espacial"""
         super().append_frame(frame)
         
-        # Analizar efectos de la acción usando el estado después de la acción
-        if not frame.is_empty():
-            # Ejecutar el análisis completo (necesario para generar la interpretación de Gemini)
-            self.spatial_perception.analyze_action_effect(
-                matrix_after=frame.frame
+        # Analyze action effects if we have both previous and current matrices
+        if (not frame.is_empty() and self.previous_matrix is not None and 
+            self.pending_action is not None):
+            
+            # Execute complete analysis using the new stateless API
+            analysis_result = self.spatial_perception.analyze_action_effect(
+                matrix_before=self.previous_matrix,
+                matrix_after=frame.frame,
+                action=self.pending_action,
+                coordinates=self.pending_coordinates,
+                include_visual_interpretation=False
             )
             
-            # Obtener solo la interpretación visual de Gemini
-            gemini_interpretation = self.spatial_perception.get_gemini_interpretation_only()
-            
             print(f"\n🎨 === SPATIAL PERCEPTION MODULE ===")
-            if gemini_interpretation:
-                print(f"🤖 {gemini_interpretation}")
-            else:
-                print("⚠️ There is no visual interpretation available")
-            print("=" * 45)
+            print(f"🤖 {analysis_result}")
+            print("=" * 50)
+            
+            # Clear the temporary state after analysis
+            self.previous_matrix = None
+            self.pending_action = None
+            self.pending_coordinates = None
+        elif not frame.is_empty():
+            print(f"\n🎨 === SPATIAL PERCEPTION MODULE ===")
+            print("⚠️ No previous matrix available for comparison")
+            print("=" * 50)

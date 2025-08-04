@@ -5,11 +5,13 @@ import numpy as np
 from dataclasses import dataclass
 
 # typing for type hints
-from typing import Optional, Tuple, List, Dict, Set
+from typing import Optional, Tuple, List
 
-# import gemini service and image utils
-from ..services.gemini_service import GeminiService
+# utils
 from ..image_utils import grid_to_image
+
+# services
+from ..services.gemini_service import GeminiService
 
 @dataclass
 class ObjectInfo:
@@ -21,7 +23,6 @@ class ObjectInfo:
     bounds: Tuple[int, int, int, int]  # (min_row, max_row, min_col, max_col)
     region: str
     size: int
-
 
 @dataclass
 class ChangeAnalysis:
@@ -49,11 +50,13 @@ class SpatialPerceptionModule:
     
     # Constants
     ACTION_NAMES = {1: "up", 2: "down", 3: "left", 4: "right", 5: "space", 6: "click"}
+    
     COLOR_NAMES = {
         0: "white", 1: "blue", 2: "gray", 3: "dark-gray", 4: "darker-gray", 5: "black",
         6: "brown", 7: "light-gray", 8: "red", 9: "blue", 10: "green",
         11: "yellow", 12: "orange", 13: "magenta", 14: "light-green", 15: "purple"
     }
+
     REGION_BOUNDS = {
         "top-left": (0, 21, 0, 21), "top-center": (0, 21, 21, 43), "top-right": (0, 21, 43, 64),
         "center-left": (21, 43, 0, 21), "center": (21, 43, 21, 43), "center-right": (21, 43, 43, 64),
@@ -62,11 +65,6 @@ class SpatialPerceptionModule:
     
     def __init__(self):
         """Initialize the spatial perception module."""
-        self.matrix_before_action: Optional[List[List[int]]] = None
-        self.pending_action: Optional[int] = None
-        self.pending_coordinates: Optional[Tuple[int, int]] = None
-        self.action_history: List[Tuple[int, Optional[Tuple[int, int]], str, Optional[ChangeAnalysis]]] = []
-        
         # Initialize Gemini service
         try:
             self.gemini_service = GeminiService()
@@ -75,42 +73,35 @@ class SpatialPerceptionModule:
             print(f"⚠️ Error initializing Gemini in SpatialPerceptionModule: {e}")
             self.gemini_service = None
     
-    def prepare_action_analysis(self, matrix_before: List[List[int]], action: int, 
-                              coordinates: Optional[Tuple[int, int]] = None) -> None:
-        """Prepare analysis by saving the state before the action."""
-        self.matrix_before_action = [row[:] for row in matrix_before]
-        self.pending_action = action
-        self.pending_coordinates = coordinates
     
-    def analyze_action_effect(self, matrix_after: List[List[int]]) -> str:
-        """Analyze the effect of the pending action after receiving the new state."""
-        if self.matrix_before_action is None or self.pending_action is None:
-            if not hasattr(self, '_first_action_completed'):
-                self.matrix_before_action = [row[:] for row in matrix_after]
-                self._first_action_completed = True
-                return "First execution - saving initial state for future comparisons."
-            return "Error: No pending action to analyze."
+    def analyze_action_effect(self, matrix_before: List[List[int]], matrix_after: List[List[int]], 
+                                action: int, coordinates: Optional[Tuple[int, int]] = None, 
+                                include_visual_interpretation: bool = True) -> str:
+        """Analyze the effect of an action by comparing before and after states.
         
-        difference_matrix = self._calculate_matrix_difference(self.matrix_before_action, matrix_after)
-        action_name = self.ACTION_NAMES.get(self.pending_action, f"action {self.pending_action}")
+        Args:
+            matrix_before: State before the action
+            matrix_after: State after the action  
+            action: Action number
+            coordinates: Clicked coordinates for complex actions
+            include_visual_interpretation: Whether to include Gemini visual analysis
+            
+        Returns:
+            Analysis string (mathematical only or mathematical + visual)
+        """
+        if not matrix_before or not matrix_after:
+            return "Error: Invalid matrices provided."
+            
+        difference_matrix = self._calculate_matrix_difference(matrix_before, matrix_after)
+        action_name = self.ACTION_NAMES.get(action, f"action {action}")
         
         if not np.any(difference_matrix != 0):
-            analysis = f"That action ({action_name}) generated no effect on the environment."
-            change_analysis = None
+            return f"That action ({action_name}) generated no effect on the environment."
         else:
-            change_analysis = self._perform_detailed_analysis(difference_matrix, 
-                                                           self.matrix_before_action, matrix_after)
-            analysis = self._generate_detailed_message(change_analysis)
-        
-        self.action_history.append((self.pending_action, self.pending_coordinates, 
-                                  analysis, change_analysis))
-        
-        # Clean pending data
-        self.matrix_before_action = None
-        self.pending_action = None
-        self.pending_coordinates = None
-        
-        return analysis
+            change_analysis = self._perform_detailed_analysis(difference_matrix, matrix_before, 
+                                                           matrix_after, action, coordinates, 
+                                                           include_visual_interpretation)
+            return self._generate_detailed_message(change_analysis, include_visual_interpretation)
     
     def detect_objects_in_matrix(self, matrix: List[List[int]]) -> List[ObjectInfo]:
         """Detect all objects (connected components) in a matrix."""
@@ -307,7 +298,9 @@ class SpatialPerceptionModule:
     
     def _perform_detailed_analysis(self, difference_matrix: np.ndarray, 
                                  matrix_before: List[List[int]], 
-                                 matrix_after: List[List[int]]) -> ChangeAnalysis:
+                                 matrix_after: List[List[int]], 
+                                 action: int, coordinates: Optional[Tuple[int, int]] = None,
+                                 include_visual_interpretation: bool = True) -> ChangeAnalysis:
         """Perform detailed analysis of detected changes."""
         try:
             before_array = np.array(matrix_before).squeeze()
@@ -333,13 +326,13 @@ class SpatialPerceptionModule:
             
             # Additional analysis
             regions_affected = self._identify_affected_regions(change_positions)
-            near_coordinates = self._check_proximity_to_coordinates(change_positions)
-            directional_consistency = self._analyze_directional_consistency(change_positions, self.pending_action)
+            near_coordinates = self._check_proximity_to_coordinates(change_positions, coordinates)
+            directional_consistency = self._analyze_directional_consistency(change_positions, action)
             
             # Generate analysis
             mathematical_analysis = self._generate_mathematical_analysis(
                 total_changes, change_percentage, change_types, regions_affected, 
-                directional_consistency, near_coordinates
+                directional_consistency, near_coordinates, action
             )
             
             detailed_changes = self._analyze_specific_changes(
@@ -366,15 +359,17 @@ class SpatialPerceptionModule:
                 all_objects_after=objects_after
             )
             
-            # Add Gemini interpretation if available
-            if self.gemini_service:
+            # Add Gemini interpretation if available and requested
+            if include_visual_interpretation and self.gemini_service:
                 try:
                     change_analysis.gemini_interpretation = self._get_gemini_visual_interpretation(
-                        matrix_before, matrix_after, change_analysis
+                        matrix_before, matrix_after, change_analysis, action
                     )
                 except Exception as e:
                     print(f"⚠️ Error in Gemini interpretation: {e}")
                     change_analysis.gemini_interpretation = "Error in visual interpretation"
+            else:
+                change_analysis.gemini_interpretation = None
             
             return change_analysis
             
@@ -448,12 +443,13 @@ class SpatialPerceptionModule:
         
         return regions
     
-    def _check_proximity_to_coordinates(self, change_positions: List[Tuple[int, int]]) -> bool:
+    def _check_proximity_to_coordinates(self, change_positions: List[Tuple[int, int]], 
+                                       coordinates: Optional[Tuple[int, int]]) -> bool:
         """Check if changes are near the clicked coordinates."""
-        if not self.pending_coordinates:
+        if not coordinates:
             return False
         
-        coord_x, coord_y = self.pending_coordinates
+        coord_x, coord_y = coordinates
         return any(abs(row - coord_y) <= 3 and abs(col - coord_x) <= 3 
                   for row, col in change_positions)
     
@@ -486,9 +482,9 @@ class SpatialPerceptionModule:
     def _generate_mathematical_analysis(self, total_changes: int, change_percentage: float,
                                       change_types: dict, regions_affected: List[str],
                                       directional_consistency: Optional[str], 
-                                      near_coordinates: bool) -> str:
+                                      near_coordinates: bool, action: int) -> str:
         """Generate detailed mathematical analysis."""
-        action_name = self.ACTION_NAMES.get(self.pending_action, f"action {self.pending_action}")
+        action_name = self.ACTION_NAMES.get(action, f"action {action}")
         
         analysis = f"🔢 MATHEMATICAL ANALYSIS: The action ({action_name}) generated {total_changes} changes"
         
@@ -566,9 +562,10 @@ class SpatialPerceptionModule:
         before_array = np.array(matrix_before)
         after_array = np.array(matrix_after)
         
-        # Find disappearances and appearances
+        # Find disappearances, appearances, and color changes
         disappearances = []
         appearances = []
+        color_changes = []
         
         for row, col in change_positions:
             if (0 <= row < before_array.shape[0] and 0 <= col < before_array.shape[1]):
@@ -581,23 +578,44 @@ class SpatialPerceptionModule:
                 elif before_val == 0 and after_val != 0:
                     color_name = self.COLOR_NAMES.get(after_val % 16, f"color-{after_val}")
                     appearances.append((row, col, color_name, after_val))
+                elif before_val != 0 and after_val != 0:
+                    before_color = self.COLOR_NAMES.get(before_val % 16, f"color-{before_val}")
+                    after_color = self.COLOR_NAMES.get(after_val % 16, f"color-{after_val}")
+                    color_changes.append((row, col, before_color, after_color))
         
-        if not disappearances and not appearances:
-            return "Only color changes, no movements detected"
+        # If we have both disappearances and appearances, analyze for movements
+        if disappearances and appearances:
+            # Group by colors and analyze movements
+            disappeared_by_color = self._group_by_color(disappearances)
+            appeared_by_color = self._group_by_color(appearances)
+            
+            movement_report = "🚀 POTENTIAL MOVEMENTS DETECTED:\n"
+            movements_found = False
+            
+            for color in disappeared_by_color:
+                if color in appeared_by_color:
+                    movement_analysis = self._analyze_color_movement(
+                        disappeared_by_color[color], appeared_by_color[color], color
+                    )
+                    if movement_analysis:
+                        movement_report += movement_analysis
+                        movements_found = True
+            
+            if movements_found:
+                return movement_report
         
-        # Group by colors and analyze movements
-        disappeared_by_color = self._group_by_color(disappearances)
-        appeared_by_color = self._group_by_color(appearances)
+        # If only color changes (no disappearances/appearances), that's not movement
+        if color_changes and not disappearances and not appearances:
+            return "Only color transformations detected, no spatial movements"
         
-        movement_report = "🚀 POTENTIAL MOVEMENTS DETECTED:\n" if disappeared_by_color and appeared_by_color else ""
+        # If only disappearances or only appearances, not paired movements
+        if disappearances and not appearances:
+            return f"Objects disappeared ({len(disappearances)} pixels) but no new objects appeared"
         
-        for color in disappeared_by_color:
-            if color in appeared_by_color:
-                movement_report += self._analyze_color_movement(
-                    disappeared_by_color[color], appeared_by_color[color], color
-                )
+        if appearances and not disappearances:
+            return f"New objects appeared ({len(appearances)} pixels) but nothing disappeared"
         
-        return movement_report if movement_report else "No clear movement patterns detected"
+        return "No clear movement patterns detected"
     
     def _group_by_color(self, positions: List[Tuple[int, int, str, int]]) -> dict:
         """Group positions by color."""
@@ -611,25 +629,59 @@ class SpatialPerceptionModule:
     def _analyze_color_movement(self, disappeared: List[Tuple[int, int, int]], 
                                appeared: List[Tuple[int, int, int]], color: str) -> str:
         """Analyze movement for a specific color."""
-        if len(disappeared) != len(appeared):
+        if not disappeared or not appeared:
             return ""
         
-        # Calculate average movement vector
-        total_row_shift = sum(appeared[i][0] - disappeared[i][0] for i in range(len(disappeared)))
-        total_col_shift = sum(appeared[i][1] - disappeared[i][1] for i in range(len(disappeared)))
+        # Try to match disappeared pixels with appeared pixels based on proximity
+        matched_movements = []
+        unmatched_disappeared = disappeared.copy()
+        unmatched_appeared = appeared.copy()
         
-        if len(disappeared) > 0:
-            avg_row_shift = total_row_shift / len(disappeared)
-            avg_col_shift = total_col_shift / len(disappeared)
+        # Simple greedy matching - for each disappeared pixel, find closest appeared pixel
+        for dis_row, dis_col, _ in disappeared:
+            best_match = None
+            best_distance = float('inf')
             
-            direction = self._format_direction(avg_row_shift, avg_col_shift)
+            for app_row, app_col, app_val in unmatched_appeared:
+                # Calculate Manhattan distance
+                distance = abs(dis_row - app_row) + abs(dis_col - app_col)
+                if distance < best_distance:
+                    best_distance = distance
+                    best_match = (app_row, app_col, app_val)
             
-            movement_report = f"  • {color}: {len(disappeared)} pixels moved {direction}\n"
-            movement_report += f"    From: {disappeared}\n"
-            movement_report += f"    To: {appeared}\n"
-            return movement_report
+            if best_match and best_distance <= 10:  # Max reasonable movement distance
+                matched_movements.append(((dis_row, dis_col), (best_match[0], best_match[1])))
+                unmatched_appeared.remove(best_match)
         
-        return ""
+        if not matched_movements:
+            # No clear movement pattern found
+            return f"  • {color}: {len(disappeared)} pixels disappeared and {len(appeared)} appeared (no clear movement pattern)\n"
+        
+        # Calculate movement statistics
+        total_row_shift = sum(to_pos[0] - from_pos[0] for from_pos, to_pos in matched_movements)
+        total_col_shift = sum(to_pos[1] - from_pos[1] for from_pos, to_pos in matched_movements)
+        
+        avg_row_shift = total_row_shift / len(matched_movements)
+        avg_col_shift = total_col_shift / len(matched_movements)
+        
+        direction = self._format_direction(avg_row_shift, avg_col_shift)
+        
+        movement_report = f"  • {color}: {len(matched_movements)} pixels moved {direction}\n"
+        
+        # Show individual movements for small numbers
+        if len(matched_movements) <= 5:
+            for from_pos, to_pos in matched_movements:
+                movement_report += f"    ({from_pos[0]},{from_pos[1]}) → ({to_pos[0]},{to_pos[1]})\n"
+        else:
+            movement_report += f"    Average shift: ({avg_row_shift:.1f}, {avg_col_shift:.1f})\n"
+        
+        # Note unmatched pixels
+        if unmatched_disappeared:
+            movement_report += f"    Also: {len(unmatched_disappeared)} pixels disappeared without clear destination\n"
+        if unmatched_appeared:
+            movement_report += f"    Also: {len(unmatched_appeared)} pixels appeared without clear origin\n"
+        
+        return movement_report
     
     def _format_direction(self, row_shift: float, col_shift: float) -> str:
         """Format movement direction as string."""
@@ -649,7 +701,7 @@ class SpatialPerceptionModule:
     
     def _get_gemini_visual_interpretation(self, matrix_before: List[List[int]], 
                                          matrix_after: List[List[int]], 
-                                         analysis: ChangeAnalysis) -> str:
+                                         analysis: ChangeAnalysis, action: int) -> str:
         """Get visual interpretation from Gemini based on the two images."""
         try:
             # Validate matrices
@@ -667,7 +719,7 @@ class SpatialPerceptionModule:
             grid_before = [normalized_before]
             grid_after = [normalized_after]
             
-            action_name = self.ACTION_NAMES.get(self.pending_action, f"action {self.pending_action}")
+            action_name = self.ACTION_NAMES.get(action, f"action {action}")
             
             # Generate images
             image_before = grid_to_image(grid_before)
@@ -685,10 +737,7 @@ class SpatialPerceptionModule:
             
             print(f"\n🤖 === CONSULTING GEMINI FOR VISUAL ANALYSIS ===")
             print(f"🔄 Sending before/after images for action: {action_name}")
-
-            print(f"\n🤖 === PROMPT ===")   
-            print(prompt)
-            
+                        
             response = self.gemini_service.generate_with_images_sync(
                 prompt=prompt,
                 images=[image_before, image_after],
@@ -880,97 +929,28 @@ For objects that remained unchanged:
         except Exception as e:
             print(f"⚠️ Error displaying image in iTerm2: {e}")
     
-    def _generate_detailed_message(self, analysis: ChangeAnalysis) -> str:
-        """Generate combined message with mathematical and visual analysis from Gemini."""
-        message = analysis.mathematical_analysis
-        message += "\n" + "="*50
+    def _generate_detailed_message(self, analysis: ChangeAnalysis, include_visual_interpretation: bool = True) -> str:
+        """Generate message with mathematical analysis and optionally visual interpretation.
         
-        if analysis.gemini_interpretation:
-            message += f"\n🎨 VISUAL INTERPRETATION:\n{analysis.gemini_interpretation}"
-        else:
-            message += f"\n🎨 VISUAL INTERPRETATION: Not available"
+        Args:
+            analysis: The change analysis data
+            include_visual_interpretation: Whether to include visual interpretation
+            
+        Returns:
+            Formatted analysis message
+        """
+        message = analysis.mathematical_analysis
+        
+        if include_visual_interpretation:
+            message += "\n" + "="*50
+            
+            if analysis.gemini_interpretation:
+                message += f"\n🎨 VISUAL INTERPRETATION:\n{analysis.gemini_interpretation}"
+            else:
+                message += f"\n🎨 VISUAL INTERPRETATION: Not available"
         
         return message
     
-    def get_gemini_interpretation_only(self) -> Optional[str]:
-        """Get only the Gemini visual interpretation from the last analysis."""
-        if not self.action_history:
-            return None
-        
-        last_analysis = self.action_history[-1][3]  # ChangeAnalysis object
-        if last_analysis and last_analysis.gemini_interpretation:
-            return last_analysis.gemini_interpretation
-        
-        # If no Gemini interpretation available, check if there were no changes
-        if last_analysis and last_analysis.total_changes == 0:
-            return "🎯 DETECTED OBJECTS:\n- No changes detected in the environment\n\n🔄 DETECTED MOVEMENTS:\n- No movements detected\n\n📍 SPECIFIC CHANGES:\n- Environment remained unchanged"
-        
-        return None
-    
-    def get_unchanged_objects_only(self) -> Optional[List[ObjectInfo]]:
-        """Get only the unchanged objects from the last analysis."""
-        if not self.action_history:
-            return None
-        
-        last_analysis = self.action_history[-1][3]  # ChangeAnalysis object
-        if last_analysis:
-            return last_analysis.unchanged_objects
-        
-        return None
-    
-    def get_changed_objects_only(self) -> Optional[List[ObjectInfo]]:
-        """Get only the changed objects from the last analysis."""
-        if not self.action_history:
-            return None
-        
-        last_analysis = self.action_history[-1][3]  # ChangeAnalysis object
-        if last_analysis:
-            return last_analysis.changed_objects
-        
-        return None
-    
-    def get_all_objects_summary(self) -> Optional[str]:
-        """Get a summary of all objects (changed and unchanged) from the last analysis."""
-        if not self.action_history:
-            return None
-        
-        last_analysis = self.action_history[-1][3]  # ChangeAnalysis object
-        if not last_analysis:
-            return None
-        
-        summary = "📋 COMPLETE OBJECT SUMMARY:\n\n"
-        
-        # Changed objects
-        if last_analysis.changed_objects:
-            summary += f"🔄 CHANGED OBJECTS ({len(last_analysis.changed_objects)}):\n"
-            for i, obj in enumerate(last_analysis.changed_objects, 1):
-                summary += f"  {i}. {obj.object_id}: {obj.shape} {obj.color} in {obj.region}\n"
-        else:
-            summary += "🔄 CHANGED OBJECTS: None\n"
-        
-        summary += "\n"
-        
-        # Unchanged objects
-        if last_analysis.unchanged_objects:
-            summary += f"⚡ UNCHANGED OBJECTS ({len(last_analysis.unchanged_objects)}):\n"
-            for i, obj in enumerate(last_analysis.unchanged_objects, 1):
-                summary += f"  {i}. {obj.object_id}: {obj.shape} {obj.color} in {obj.region}\n"
-        else:
-            summary += "⚡ UNCHANGED OBJECTS: None\n"
-        
-        # Statistics
-        total_changed = len(last_analysis.changed_objects) if last_analysis.changed_objects else 0
-        total_unchanged = len(last_analysis.unchanged_objects) if last_analysis.unchanged_objects else 0
-        total_objects = total_changed + total_unchanged
-        
-        if total_objects > 0:
-            unchanged_percentage = (total_unchanged / total_objects) * 100
-            summary += f"\n📊 STATISTICS:\n"
-            summary += f"  • Total objects: {total_objects}\n"
-            summary += f"  • Changed: {total_changed} ({100-unchanged_percentage:.1f}%)\n"
-            summary += f"  • Unchanged: {total_unchanged} ({unchanged_percentage:.1f}%)\n"
-        
-        return summary
     
     def _calculate_matrix_difference(self, matrix_before: List[List[int]], 
                                    matrix_after: List[List[int]]) -> np.ndarray:
@@ -1012,14 +992,3 @@ For objects that remained unchanged:
             all_objects_before=[], all_objects_after=[]
         )
     
-    def get_action_history(self) -> List[Tuple[int, Optional[Tuple[int, int]], str, Optional[ChangeAnalysis]]]:
-        """Get the complete history of analyzed actions."""
-        return self.action_history.copy()
-    
-    def get_last_analysis(self) -> Optional[str]:
-        """Get the last analysis performed."""
-        return self.action_history[-1][2] if self.action_history else None
-    
-    def get_detailed_last_analysis(self) -> Optional[ChangeAnalysis]:
-        """Get the last detailed analysis performed."""
-        return self.action_history[-1][3] if self.action_history else None
