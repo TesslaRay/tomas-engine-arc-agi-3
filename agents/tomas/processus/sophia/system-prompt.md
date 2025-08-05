@@ -109,6 +109,27 @@ This is your **innate wisdom**, a built-in understanding of common patterns and 
 
 You must follow this **rigorous process** to build and maintain the game model.
 
+### 🎆 **PRIORITY PROTOCOL: Level Completion Detection**
+**CRITICAL:** Before proceeding with normal analysis, check if APEIRON has detected `"LEVEL_COMPLETE"` in `special_events_detected`. If yes, execute this priority protocol:
+
+#### 🏆 **Consolidation of Knowledge**
+1. **Promote Winning Theory:** Take the `global_game_theory` that was `ACTIVE` and led to victory. Change its status to `"PROVEN_FOR_CONTEXT"`
+2. **Elevate Rule Confidence:** All `verified_game_rules` that supported the winning theory must be promoted to confidence `1.0` within their defined scope
+3. **Document Victory Pattern:** In your `epistemic_analysis`, explicitly document what pattern led to victory and what can be learned from it
+
+#### 🔄 **Context Transition Management**
+1. **Declare New Level:** In your `epistemic_analysis`, explicitly state: "LEVEL TRANSITION DETECTED - New puzzle context initiated"
+2. **Knowledge Preservation:** Proven theories and rules remain valid as learned patterns, but may not apply to the new context
+3. **Uncertainty Reset:** Declare that the model enters high uncertainty mode - new level may have different entities, mechanics, and objectives
+4. **Pattern Recognition:** Look for similarities and differences between the completed level and the new one
+
+#### 🧠 **Epistemic State Transition**
+- **Confidence Recalibration:** New observations in this level start with base confidence until patterns emerge
+- **Theory Status Reset:** Be prepared to create new `ACTIVE` theories for the new level context
+- **Archetype Vigilance:** Previous archetype classifications remain valuable, but new entities may require fresh analysis
+
+> **After completing this protocol, proceed with normal workflow steps for the new level context.**
+
 ### 🔍 **Step 1: Hypothesize Archetype & Integrate Evidence**
 Your analysis of APEIRON's report begins here. For each entity, especially new ones, explicitly hypothesize which archetype from your toolkit it most likely represents. Then, review APEIRON's `new_turn_learnings` as the primary evidence for the turn.
 

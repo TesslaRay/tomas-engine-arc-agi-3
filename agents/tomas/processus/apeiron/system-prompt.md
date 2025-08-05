@@ -102,6 +102,37 @@ Conclude your thinking process by identifying the two most important outputs for
 - **🎓 The Key Learning:** What is the single most important, genuinely new piece of information that was revealed this turn? This will become a `new_learning`.
 - **❓ The Next Critical Uncertainty:** Based on this new learning, what is the most pressing question or unknown that TOMAS must now face? This will frame the `synthesis_for_next_cycle` and guide LOGOS's next deliberation.
 
+### 🎆 **Step 6: Monitor for Cataclysmic Events**
+**CRITICAL NEW RESPONSIBILITY:** Beyond analyzing normal gameplay, you must monitor for **level transition events** that signal victory or major game state changes.
+
+If you observe any of the following **anomalous patterns** that cannot be explained by normal game mechanics, add `"LEVEL_COMPLETE"` to the `special_events_detected` array:
+
+#### 🌊 **Mass Entity Disappearance**
+- Simultaneous vanishing of >80% of game entities
+- Complete clearing of complex board states
+- Return to minimal entity count after gameplay complexity
+
+#### 📈 **Score Surge Events**
+- Sudden dramatic increase in score (>100 points or >50% increase)
+- Score jumps that are disproportionate to the action taken
+- Achievement of round numbers (100, 500, 1000) suggesting completion
+
+#### 🎨 **Global Board Transformation**
+- Complete visual transformation of the entire playing field
+- Wholesale color changes across the board
+- Fundamental shift in board structure or layout
+
+#### 🔄 **State Reset Indicators**
+- Transition from complex gameplay back to simple initial states
+- Appearance of new, different puzzle elements
+- Visual cues suggesting "level cleared" or "next stage"
+
+**Example Scenarios:**
+- Normal gameplay: `"special_events_detected": []`
+- Victory detected: `"special_events_detected": ["LEVEL_COMPLETE"]`
+
+> **⚠️ Important:** These events are rare and dramatic. Do not trigger this for normal gameplay changes, only for truly cataclysmic state transitions.
+
 --- ## 📝 **4. Detailed Output Generation Guide**
 
 Your final output must be a **single, valid JSON object**. Adhere strictly to the structure and token requirements detailed below. Use the concepts and workflow from Section 3 to construct the content for each field.

@@ -590,7 +590,7 @@ IMPORTANTE: Tu respuesta DEBE ser un JSON válido que incluya el campo "timestam
                 
                 # Definir campos requeridos según el tipo de LLM
                 required_fields = {
-                    "apeiron": ["timestamp", "causal_narrative_of_turn", "conceptualized_entities", "new_turn_learnings", "synthesis_for_next_cycle"],
+                    "apeiron": ["timestamp", "causal_narrative_of_turn", "special_events_detected", "conceptualized_entities", "new_turn_learnings", "synthesis_for_next_cycle"],
                     "sophia": ["timestamp", "epistemic_analysis", "archetype_analysis", "verified_game_rules", "global_game_theories"],
                     "logos": ["timestamp", "intent_phase", "counsel_phase", "choice_phase", "command_phase", "predictive_judgment_phase"]
                 }
@@ -599,6 +599,13 @@ IMPORTANTE: Tu respuesta DEBE ser un JSON válido que incluya el campo "timestam
                 
                 # Validar que tenga los campos requeridos según el tipo
                 if all(field in parsed_json for field in target_fields):
+                    # Validación adicional específica para APEIRON
+                    if llm_type == "apeiron" and "special_events_detected" in parsed_json:
+                        special_events = parsed_json.get("special_events_detected", [])
+                        if special_events and isinstance(special_events, list):
+                            if "LEVEL_COMPLETE" in special_events:
+                                print(f"🎆 APEIRON detectó evento LEVEL_COMPLETE - Transición de nivel inminente")
+                    
                     # Validación adicional específica para Sophia
                     if llm_type == "sophia" and "global_game_theories" in parsed_json:
                         theories = parsed_json.get("global_game_theories", [])
