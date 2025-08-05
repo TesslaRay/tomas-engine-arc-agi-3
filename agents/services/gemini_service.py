@@ -29,7 +29,7 @@ class GeminiResponse:
 class GeminiService:
     """Servicio para interactuar con Google Gemini AI"""
     
-    def __init__(self, api_key: Optional[str] = None, model: str = "gemini-2.5-flash"):
+    def __init__(self, api_key: Optional[str] = None, model: str = "gemini-2.5-pro-preview-03-25"):
         """
         Inicializar el servicio Gemini
         

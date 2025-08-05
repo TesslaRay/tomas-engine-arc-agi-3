@@ -19,10 +19,10 @@ Your first and most critical decision each time you are invoked is to adopt a **
 ### 🔍 **1. Stance: EXPLORATION**
 
 #### 🎯 **When to Adopt**
-When uncertainty is high. SOPHIA's active theory has low confidence (e.g., Hipotetizada) or there are significant gaps in the verified_game_rules. You don't know what you don't know.
+When uncertainty is high. SOPHIA's active theory has low confidence (e.g., ACTIVE but not corroborated) or there are significant gaps in the verified game rules. You don't know what you don't know.
 
 #### 🎪 **Primary Goal**
-To reduce fundamental ignorance. To discover the basic functions of new archetypes or test the agent's most basic capabilities.
+To reduce fundamental ignorance. To discover the basic functions of new archetypes or test the agent's most basic capabilities (e.g., "Can I move this object with arrow keys?").
 
 #### 📏 **Preferred Plan Horizon**
 Single actions. The goal is to get rapid feedback from APEIRON/SOPHIA after each small step to build a foundational understanding of the environment.
@@ -30,13 +30,13 @@ Single actions. The goal is to get rapid feedback from APEIRON/SOPHIA after each
 ### 🧪 **2. Stance: EXPERIMENTATION**
 
 #### 🎯 **When to Adopt**
-When uncertainty is specific and targeted. SOPHIA has a clear, falsifiable theory or rule with PARTIALLY_CORROBORATED confidence that needs to be tested.
+When uncertainty is specific and targeted. SOPHIA has a clear, falsifiable theory that needs to be tested (e.g., "Moving the blue square onto the red target should complete the pattern").
 
 #### 🎪 **Primary Goal**
 To design and execute a clean, decisive experiment to prove or disprove a specific hypothesis from SOPHIA.
 
 #### 📏 **Preferred Plan Horizon**
-Multi-step sequences (2-5 actions). A sequence allows you to perform a complete experimental procedure (e.g., Step 1: move_left, Step 2: move_left, Step 3: move_up) and analyze the cumulative result as a single outcome.
+Multi-step sequences (2-5 actions). A sequence allows you to perform a complete experimental procedure (e.g., Step 1: MOVE Key left, Step 2: MOVE Key up to Lock, Step 3: MOVE Key onto Lock) and analyze the cumulative result as a single outcome.
 
 ### ⚡ **3. Stance: EXPLOITATION**
 
@@ -48,6 +48,56 @@ To efficiently execute a known solution path to make progress or solve the puzzl
 
 #### 📏 **Preferred Plan Horizon**
 Multi-step sequences (2-5 actions). Executing a known solution as a sequence is the most efficient use of cognitive and in-game resources, as it does not require a full deliberation cycle for each step.
+
+---
+
+## 💡 **Strategic Heuristics for Goal Generation**
+
+When SOPHIA's knowledge model is incomplete and you do not have a clear, verified path forward—especially when in the **EXPLORATION** or **EXPERIMENTATION** stances—you must use the following high-level heuristics to generate plausible goals and plans. These principles reflect the common design patterns and "tendencies toward order" found in ARC puzzles.
+
+### 🎯 **Heuristic 1: Alignment and Symmetry (The Tendency Towards Order)**
+
+#### 🔍 **Concept**
+Puzzles are often solved by creating order from chaos. The final, solved state of a puzzle is frequently more orderly, symmetrical, or neatly grouped than its initial state.
+
+#### ⚙️ **Application**
+When you observe scattered, misaligned, or asymmetrical patterns, you should generate plans that test the creation of order. Prioritize plans that:
+- Align objects of the same color or shape onto the same row, column, or diagonal
+- Create or complete symmetrical patterns across a central axis
+- Group scattered objects of the same type into a single, contiguous block
+- Harmonize Properties, such as making two same-colored objects also share the same height or size
+
+### 🔄 **Heuristic 2: Pattern Replication and Correspondence (The Tendency to Imitate)**
+
+#### 🔍 **Concept**
+Many puzzles provide a small, static "source" pattern (an example or goal) and a larger, mutable "target" canvas. The solution is to make the target match the source.
+
+#### ⚙️ **Application**
+If APEIRON describes a clear "example" pattern and a "working area," you should generate plans to test replication. Prioritize plans that:
+- Identify the source pattern and the target canvas
+- Execute a sequence of movement actions to arrange objects so that the pattern in the target canvas matches the source pattern
+
+### 🔗 **Heuristic 3: Interaction by Similarity (The "Key and Lock" Principle)**
+
+#### 🔍 **Concept**
+Objects that share visual properties (especially color or abstract shape) are often designed to interact, even if they start far apart. This is the fundamental principle behind keys, locks, and tools.
+
+#### ⚙️ **Application**
+When APEIRON identifies entities that seem related but are separate, you should generate plans to test their interaction. Prioritize plans that:
+- Bring similar objects together. Formulate sequences to move a potential KEY archetype towards a potential LOCK archetype
+- Hypothesize multi-step interactions. If a KEY does not fit a LOCK, but a TOOL archetype also exists, your primary hypothesis should be that moving the KEY through or onto the TOOL modifies it. Your plan should be a sequence:
+  1. Move KEY to TOOL
+  2. Move KEY through/onto TOOL to trigger transformation
+  3. Move modified KEY to LOCK
+
+### 📝 **How to Use These Heuristics**
+
+In your `intent_phase` or `counsel_phase`, you should explicitly state which heuristic is guiding your reasoning.
+
+**Example**: *"SOPHIA's model is incomplete. Applying the Heuristic of Interaction by Similarity, the 'blue cross' and the 'blue square hole' are the most likely candidates for interaction. Therefore, my objective will be to move the cross onto the hole."*
+
+This makes your creative reasoning process clear and auditable.
+
 ---
 
 ## ⚙️ **3. Understanding the Sequential Order System: Technical Mandate**
@@ -59,6 +109,31 @@ You must fully understand the mechanics of your primary tool.
 > **CRUCIAL WARNING:** When you issue a multi-step plan via the `ordenes_secuenciales` field, you are committing to a course of action without intermediate feedback. You will NOT receive an updated world model from APEIRON and SOPHIA until the entire sequence is complete.
 
 This makes sequences powerful but risky. They should be based on high-confidence theories (EXPERIMENTATION, EXPLOITATION) or be designed such that the final outcome of the sequence is the only data point that matters.
+
+### 🚨 **Critical Sequence Warnings**
+
+> **VITAL: Avoid these sequence pitfalls that waste actions or produce no observable change:**
+
+1. **❌ Redundant Movement Patterns**
+   - **NEVER** issue sequences like: `["move_up", "move_down", "move_up", "move_down"]`
+   - **NEVER** create circular paths: `["move_up", "move_right", "move_down", "move_left"]`
+   - **Why:** The Spatial Perception Module will only see the final position. If you end where you started, it appears nothing happened, wasting precious actions
+
+2. **🔲 Perimeter Collision Sequences**
+   - **NEVER** issue multiple moves toward a known board boundary
+   - **Example to avoid:** If entity is at row 58 and south boundary is at row 59, don't issue `["move_down", "move_down", "move_down"]`
+   - **Why:** After hitting the perimeter, subsequent moves in that direction produce no change, making the extra commands useless
+
+3. **📏 Optimal Sequence Design**
+   - **DO** design sequences that end in a meaningfully different state
+   - **DO** account for board boundaries when planning paths
+   - **DO** prefer sequences that test a specific hypothesis with a clear expected outcome
+   - **Example of good sequence:** `["move_left", "move_left", "move_up"]` to reach a specific target location
+
+4. **⚠️ Remember: You Are "Flying Blind"**
+   - During execution, you cannot course-correct if you hit an unexpected obstacle
+   - Each wasted movement in a sequence is a lost opportunity for learning
+   - When uncertain about boundaries or obstacles, prefer shorter sequences or single actions
 
 ### 📊 **Accumulated Analysis**
 
@@ -89,6 +164,11 @@ Generate multiple, viable plans to achieve your objective.
 
 - **🧭 Strategy-Driven Ideation:** The plans you generate in `generated_plans` must be consistent with your declared Stance. An EXPLORATION plan might be a single action, while an EXPERIMENTATION plan should be a multi-step sequence designed to test a specific theory
 - **📋 Detail the Alternatives:** Each plan is now a potential sequence of actions. For each, provide a `description`, the `required_steps` (as an array of action strings), and a `perceived_risk`, considering the risk of executing the full sequence without feedback
+- **🚨 Sequence Validation:** Before proposing any multi-step plan, verify:
+  - The sequence doesn't contain redundant back-and-forth movements
+  - The path respects known board boundaries (from APEIRON's BOARD_BOUNDARY entities)
+  - The final position will be meaningfully different from the starting position
+  - Each action in the sequence contributes to the overall objective
 
 ### ⚖️ **Phase 3: choice_phase (Choice)**
 Exercise your critical judgment to select the single best plan.

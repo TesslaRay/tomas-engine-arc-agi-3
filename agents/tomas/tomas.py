@@ -465,11 +465,12 @@ IMPORTANTE: Tu respuesta DEBE ser un JSON válido que incluya el campo "timestam
             print(f"❌ Error en SOPHIA: {e}")
             return f"Error en SOPHIA: {str(e)}", None
 
-    def ask_logos_analysis(self, sophia_response: str) -> tuple[str, Optional[Dict[str, Any]]]:
+    def ask_logos_analysis(self, apeiron_response: str, sophia_response: str) -> tuple[str, Optional[Dict[str, Any]]]:
         """
         Consultar a LOGOS (LLM3) para deliberación y acción
         
         Args:
+            apeiron_response: Respuesta completa de APEIRON del turno actual
             sophia_response: Respuesta completa de SOPHIA del turno actual
             
         Returns:
@@ -484,6 +485,12 @@ IMPORTANTE: Tu respuesta DEBE ser un JSON válido que incluya el campo "timestam
             logos_system_prompt = self.load_markdown_file("processus/logos/system-prompt.md")
             logos_response_format = self.load_markdown_file("processus/logos/response.md")
             
+            # Obtener la respuesta de LOGOS del turno anterior si existe
+            logos_anterior = None
+            if self.vcg_history:
+                last_vcg = self.vcg_history[-1]
+                logos_anterior = last_vcg.get('logos_response', '')
+            
             # Construir el prompt combinado
             combined_prompt = f"""
 {alma_content}
@@ -492,8 +499,14 @@ IMPORTANTE: Tu respuesta DEBE ser un JSON válido que incluya el campo "timestam
 
 {logos_response_format}
 
-## Vector Cognitivo Global enriquecido por SOPHIA:
+## Salida de APEIRON (Percepción actual):
+{apeiron_response}
+
+## Salida de SOPHIA (Episteme actual):
 {sophia_response}
+
+## Respuesta de LOGOS del turno anterior:
+{logos_anterior if logos_anterior else "Este es el primer turno - no hay LOGOS anterior"}
 
 IMPORTANTE: Tu respuesta DEBE ser un JSON válido que incluya el campo "timestamp" en formato ISO 8601 (ejemplo: "2025-08-05T10:30:00.000Z"). Genera el timestamp actual automáticamente.
 """
@@ -506,7 +519,9 @@ IMPORTANTE: Tu respuesta DEBE ser un JSON válido que incluya el campo "timestam
             print(f"   📄 Alma: {len(alma_content)} chars")
             print(f"   📄 System Prompt: {len(logos_system_prompt)} chars")
             print(f"   📄 Response Format: {len(logos_response_format)} chars")
+            print(f"   🧠 Respuesta APEIRON: {len(apeiron_response)} chars")
             print(f"   🧠 Respuesta SOPHIA: {len(sophia_response)} chars")
+            print(f"   ⚡ LOGOS anterior: {len(logos_anterior) if logos_anterior else 0} chars")
             print(f"   📝 Prompt Total: {len(combined_prompt)} chars")
             
             response = self.gemini_service.generate_with_images_sync(
@@ -584,6 +599,19 @@ IMPORTANTE: Tu respuesta DEBE ser un JSON válido que incluya el campo "timestam
                 
                 # Validar que tenga los campos requeridos según el tipo
                 if all(field in parsed_json for field in target_fields):
+                    # Validación adicional específica para Sophia
+                    if llm_type == "sophia" and "global_game_theories" in parsed_json:
+                        theories = parsed_json.get("global_game_theories", [])
+                        if theories and isinstance(theories, list):
+                            # Verificar que al menos la teoría activa tenga los nuevos campos
+                            for theory in theories:
+                                if theory.get("status") in ["ACTIVE", "PARTIALLY_CORROBORATED", "HIGHLY_CORROBORATED"]:
+                                    if "victory_hypothesis" not in theory or "means_catalog" not in theory:
+                                        print(f"⚠️ Teoría activa de SOPHIA sin campos victory_hypothesis o means_catalog")
+                                        print(f"   Se esperan los campos: victory_hypothesis, means_catalog")
+                                        print(f"   Teoría encontrada: {list(theory.keys())}")
+                                        # No es un error crítico, solo una advertencia
+                    
                     print(f"✅ JSON válido extraído de {llm_type.upper()}")
                     return parsed_json
                 else:
@@ -863,7 +891,7 @@ IMPORTANTE: Tu respuesta DEBE ser un JSON válido que incluya el campo "timestam
                 print("⚠️ SOPHIA no devolvió JSON válido, continuando con respuesta textual")
             
             # PASO 3: LOGOS - Deliberación y Acción
-            logos_response, logos_json = self.ask_logos_analysis(sophia_response)
+            logos_response, logos_json = self.ask_logos_analysis(apeiron_response, sophia_response)
             
             if not logos_json:
                 print("⚠️ LOGOS no devolvió JSON válido")

@@ -91,6 +91,8 @@ This JSON object constitutes the `llm3_deliberation_state` of the new Global Cog
 **`generated_plans`** *(Array of Objects)*
 - **Range:** Minimum 2, maximum 4 plans
 - Each plan is a sequence and must have: `plan_id`, `description`, `required_steps` (an array of action strings), and `perceived_risk`
+- **⚠️ CRITICAL:** Avoid sequences with redundant movements (up-down-up) or that end at the starting position
+- **⚠️ CRITICAL:** Consider board boundaries to avoid wasted moves against perimeters
 
 ### ⚖️ **`choice_phase`**
 - **Type:** Object
@@ -122,10 +124,14 @@ This JSON object constitutes the `llm3_deliberation_state` of the new Global Cog
 **`sequential_orders`** *(Array of Objects)*
 - **For multi-step plans:** An array of action objects to be executed sequentially by the system
 - **Example:** `[{"action": "move_left"}, {"action": "move_up"}]`
+- **🚨 REMEMBER:** During sequence execution you are "flying blind" - no feedback until all actions complete
+- **✅ GOOD:** Sequences that reach a specific target or test a hypothesis
+- **❌ BAD:** Sequences with back-and-forth movements or multiple moves against a known boundary
 
 **`immediate_command`** *(Object)*
 - **For single-step plans:** A single action object
-- **Example:** `{"action": "interact"}`
+- **Example:** `{"action": "move_left"}`
+- **💡 TIP:** When uncertain about boundaries or obstacles, prefer single actions for immediate feedback
 
 > **CRUCIAL RULE:** You MUST populate EITHER `sequential_orders` (if length > 1) OR `immediate_command` (if length == 1). NEVER POPULATE BOTH. If `sequential_orders` is used, `immediate_command` must be null or an empty object.
 
@@ -157,6 +163,21 @@ All phases of deliberation (Intent to Command) must be fully and explicitly docu
 
 ### 🤝 **Trust Your Senses and Intellect**
 Your reality is defined by APEIRON's perception, and your knowledge is defined by SOPHIA's model. Base all deliberations on their outputs.
+
+### 🎯 **Sequential Order Examples**
+
+**❌ BAD SEQUENCES (Avoid These):**
+- `[{"action": "move_up"}, {"action": "move_down"}, {"action": "move_up"}]` - Redundant movement
+- `[{"action": "move_left"}, {"action": "move_right"}, {"action": "move_left"}, {"action": "move_right"}]` - No net progress
+- `[{"action": "move_up"}, {"action": "move_right"}, {"action": "move_down"}, {"action": "move_left"}]` - Circular path
+- If at row 58 with boundary at 59: `[{"action": "move_down"}, {"action": "move_down"}, {"action": "move_down"}]` - Wasted moves against perimeter
+
+**✅ GOOD SEQUENCES (Use These Patterns):**
+- `[{"action": "move_left"}, {"action": "move_left"}, {"action": "move_up"}]` - Clear path to target
+- `[{"action": "move_up"}, {"action": "move_up"}, {"action": "move_up"}]` - Testing vertical movement limit
+- `[{"action": "move_right"}, {"action": "move_right"}]` - Reaching a specific column for interaction
+
+**💡 REMEMBER:** Each action in a sequence costs one turn. Wasted movements mean lost opportunities for discovery.
 
 ---
 
