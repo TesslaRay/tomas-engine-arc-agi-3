@@ -11,6 +11,9 @@ from ..structs import FrameData, GameAction, GameState
 from ..image_utils import grid_to_image
 from ..services.gemini_service import GeminiService
 
+# Módulo de percepción espacial
+from ..tomas_engine.spatial_perception_module import SpatialPerceptionModule
+
 
 class Tomas(Agent):
     """An agent that always selects actions at random."""
@@ -30,6 +33,14 @@ class Tomas(Agent):
             print(f"⚠️ Error al inicializar Gemini: {e}")
             self.gemini_service = None            
         
+        # Inicializar el módulo de percepción espacial
+        try:
+            self.spatial_perception = SpatialPerceptionModule()
+            print("✅ Módulo de Percepción Espacial inicializado correctamente")
+        except Exception as e:
+            print(f"⚠️ Error al inicializar Percepción Espacial: {e}")
+            self.spatial_perception = None
+        
         # Inicializar memoria episódica
         self.episodic_memory: List[Dict[str, Any]] = []
         self.max_memory_size = 10  # Mantener los últimos 10 movimientos
@@ -43,8 +54,27 @@ class Tomas(Agent):
         self.max_vcg_history = 5  # Mantener los últimos 5 VCG completos
         
         # Estado anterior del tablero para análisis diferencial
-        self.previous_board_state = None
+        # Inicializar con matriz dummy "ojos cerrados" (64x64 de ceros)
+        self.previous_board_state = self._create_dummy_closed_eyes_matrix()
         self.previous_frame_data = None    
+        
+        # Información de la acción anterior para análisis espacial
+        self.previous_action = None
+        self.previous_action_coordinates = None
+        
+        print(f"👁️ Matriz 'ojos cerrados' inicializada: {len(self.previous_board_state)}x{len(self.previous_board_state[0])} (todo en negro)")
+
+    def _create_dummy_closed_eyes_matrix(self) -> List[List[int]]:
+        """
+        Crear matriz dummy que representa 'ojos cerrados' - todo en negro (ceros)
+        
+        Esta matriz se usa como estado inicial "anterior" para que el análisis 
+        espacial funcione desde el primer turno del juego.
+        
+        Returns:
+            Matriz 64x64 llena de ceros (color negro/fondo)
+        """
+        return [[0 for _ in range(64)] for _ in range(64)]
 
     def load_markdown_file(self, file_path: str) -> str:
         """
@@ -75,6 +105,54 @@ class Tomas(Agent):
             print(f"⚠️ Error al cargar {file_path}: {e}")
             return f"# Error: No se pudo cargar {file_path}"
 
+    def analyze_spatial_perception(self, current_frame: FrameData) -> Optional[str]:
+        """
+        Realizar análisis de percepción espacial comparando el estado actual con el anterior
+        
+        Args:
+            current_frame: Estado actual del juego
+            
+        Returns:
+            Análisis espacial como string o None si no hay análisis disponible
+        """
+        if not self.spatial_perception or current_frame.is_empty():
+            return None
+        
+        # NOTA: Ya no verificamos self.previous_board_state porque siempre tenemos la matriz dummy
+        
+        try:
+            print(f"\n🎨 === INICIANDO ANÁLISIS DE PERCEPCIÓN ESPACIAL ===")
+            
+            # Determinar si es el primer turno (comparando con matriz dummy)
+            is_first_turn = all(all(cell == 0 for cell in row) for row in self.previous_board_state)
+            
+            if is_first_turn:
+                print(f"👁️ PRIMER TURNO: Comparando matriz actual vs 'ojos cerrados' (dummy)")
+            else:
+                print(f"🔄 TURNO SUBSECUENTE: Comparando estado actual vs anterior")
+            
+            # Realizar análisis de efectos de la acción anterior
+            analysis_result = self.spatial_perception.analyze_action_effect(
+                matrix_before=self.previous_board_state,
+                matrix_after=current_frame.frame,
+                action=self.previous_action if self.previous_action else 0,
+                coordinates=self.previous_action_coordinates,
+                include_visual_interpretation=True  # Incluir análisis visual de Gemini
+            )
+            
+            print(f"✅ Análisis espacial completado")
+            print(f"📊 Resultado: {len(analysis_result)} caracteres")
+            print(f"🔍 Análisis detallado:")
+            print("=" * 50)
+            print(analysis_result)
+            print("=" * 50)
+            
+            return analysis_result
+            
+        except Exception as e:
+            print(f"❌ Error en análisis de percepción espacial: {e}")
+            return None
+
     def ask_apeiron_analysis(self, latest_frame: FrameData, vector_cognitivo_global_anterior: Optional[str] = None) -> tuple[str, Optional[Dict[str, Any]]]:
         """
         Consultar a APEIRON (LLM1) para análisis perceptual
@@ -95,8 +173,19 @@ class Tomas(Agent):
             apeiron_system_prompt = self.load_markdown_file("processus/apeiron/system-prompt.md")
             apeiron_response_format = self.load_markdown_file("processus/apeiron/response.md")
             
-            # Generar imagen del mapa actual (comentado por ahora)
-            # map_image = grid_to_image(latest_frame.frame)
+            # Realizar análisis de percepción espacial si hay estado anterior
+            spatial_analysis = self.analyze_spatial_perception(latest_frame)
+            
+            # Determinar si es el primer turno para contexto adicional
+            is_first_turn = all(all(cell == 0 for cell in row) for row in self.previous_board_state)
+            first_turn_context = ""
+            if is_first_turn:
+                first_turn_context = """
+## CONTEXTO ESPECIAL - PRIMER TURNO:
+Este es el primer turno del juego. El análisis de percepción espacial compara el estado actual del tablero contra una matriz "ojos cerrados" (todo en negro/ceros). Esto significa que TODAS las figuras/objetos visibles en el tablero actual son NUEVAS APARICIONES desde el estado inicial de "ojos cerrados".
+
+El análisis espacial detectará todos los elementos del tablero como "apariciones" o "materializaciones" desde el estado de oscuridad total.
+"""
             
             # Construir el prompt combinado
             combined_prompt = f"""
@@ -111,6 +200,8 @@ class Tomas(Agent):
 - Acción número: {self.action_counter}
 - Estado del juego: {latest_frame.state}
 
+{first_turn_context}
+
 ## input_fresco (board_state actual):
 {latest_frame.frame}
 
@@ -119,6 +210,9 @@ class Tomas(Agent):
 
 ## vector_cognitivo_global_anterior:
 {vector_cognitivo_global_anterior if vector_cognitivo_global_anterior else "Este es el primer turno - no hay VCG anterior"}
+
+## analisis_percepcion_espacial:
+{spatial_analysis if spatial_analysis else "No hay análisis espacial disponible - primer turno o sin cambios"}
 """
             
             print(f"\n🧠 === CONSULTANDO APEIRON (LLM1) ===")
@@ -131,6 +225,7 @@ class Tomas(Agent):
             print(f"   📄 Response Format: {len(apeiron_response_format)} chars")
             print(f"   🎮 Frame Data: {latest_frame.frame.shape if hasattr(latest_frame.frame, 'shape') else 'N/A'}")
             print(f"   📊 VCG Anterior: {len(vector_cognitivo_global_anterior) if vector_cognitivo_global_anterior else 0} chars")
+            print(f"   🎨 Percepción Espacial: {len(spatial_analysis) if spatial_analysis else 0} chars")
             print(f"   📝 Prompt Total: {len(combined_prompt)} chars")
             
             response = self.gemini_service.generate_with_images_sync(
@@ -329,7 +424,7 @@ class Tomas(Agent):
                 
                 # Definir campos requeridos según el tipo de LLM
                 required_fields = {
-                    "apeiron": ["timestamp", "analisis_diferencial", "entidades_conceptualizadas", "nuevos_aprendizajes_del_turno", "resumen_para_llm2_y_llm3"],
+                    "apeiron": ["timestamp", "causal_narrative_of_turn", "conceptualized_entities", "new_turn_learnings", "synthesis_for_next_cycle"],
                     "sophia": ["timestamp", "analisis_epistemico", "conclusiones_sobre_entidades", "reglas_del_juego_verificadas"],
                     "logos": ["timestamp", "fase_intentio", "fase_consilium", "fase_electio", "fase_imperium"]
                 }
@@ -788,6 +883,15 @@ class Tomas(Agent):
         self._last_frame_before_action = latest_frame
         self._last_action = action
         self._last_gemini_analysis = logos_json
+        
+        # Guardar información de acción para el próximo análisis espacial
+        self.previous_action = action.value if hasattr(action, 'value') and isinstance(action.value, int) else None
+        
+        # Extraer coordenadas si es una acción compleja
+        if action.is_complex() and hasattr(action, 'data') and action.data:
+            self.previous_action_coordinates = (action.data.get('x'), action.data.get('y'))
+        else:
+            self.previous_action_coordinates = None
         
         print(f"\n✅ DECISIÓN FINAL: {action.value}")
         return action
