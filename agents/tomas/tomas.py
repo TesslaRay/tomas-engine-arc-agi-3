@@ -62,7 +62,13 @@ class Tomas(Agent):
         self.previous_action = None
         self.previous_action_coordinates = None
         
+        # Sistema de cola de órdenes de LOGOS
+        self.pending_orders = []  # Cola de órdenes pendientes
+        self.current_order_index = 0  # Índice de la orden actual
+        self.orders_reasoning = ""  # Razonamiento de la secuencia de órdenes
+        
         print(f"👁️ Matriz 'ojos cerrados' inicializada: {len(self.previous_board_state)}x{len(self.previous_board_state[0])} (todo en negro)")
+        print(f"📋 Sistema de órdenes LOGOS inicializado: 0 órdenes pendientes")
 
     def _create_dummy_closed_eyes_matrix(self) -> List[List[int]]:
         """
@@ -75,6 +81,145 @@ class Tomas(Agent):
             Matriz 64x64 llena de ceros (color negro/fondo)
         """
         return [[0 for _ in range(64)] for _ in range(64)]
+
+    def add_orders_from_logos(self, orders_list: List[Dict[str, Any]], reasoning: str = "") -> None:
+        """
+        Agregar una secuencia de órdenes de LOGOS para ejecutar
+        
+        Args:
+            orders_list: Lista de órdenes con formato [{"action": "move_up", "coordinates": (x, y)}, ...]
+            reasoning: Razonamiento detrás de la secuencia de órdenes
+        """
+        self.pending_orders = orders_list.copy()
+        self.current_order_index = 0
+        self.orders_reasoning = reasoning
+        
+        print(f"\n📋 === LOGOS HA EMITIDO {len(orders_list)} ÓRDENES ===")
+        for i, order in enumerate(orders_list, 1):
+            action_name = order.get('action', 'unknown')
+            coords = order.get('coordinates')
+            coord_info = f" en {coords}" if coords else ""
+            print(f"   {i}. {action_name}{coord_info}")
+        print(f"🎯 Razonamiento: {reasoning}")
+        print("=" * 50)
+
+    def has_pending_orders(self) -> bool:
+        """
+        Verificar si hay órdenes pendientes por ejecutar
+        
+        Returns:
+            True si hay órdenes pendientes, False si no
+        """
+        return (self.pending_orders and 
+                self.current_order_index < len(self.pending_orders))
+
+    def get_next_order(self) -> Optional[Dict[str, Any]]:
+        """
+        Obtener la siguiente orden a ejecutar
+        
+        Returns:
+            Diccionario con la orden o None si no hay más órdenes
+        """
+        if self.has_pending_orders():
+            current_order = self.pending_orders[self.current_order_index]
+            self.current_order_index += 1
+            
+            print(f"\n⚡ EJECUTANDO ORDEN {self.current_order_index}/{len(self.pending_orders)}")
+            print(f"   🎯 Acción: {current_order.get('action', 'unknown')}")
+            if 'coordinates' in current_order:
+                print(f"   📍 Coordenadas: {current_order['coordinates']}")
+            print(f"   📋 Órdenes restantes: {len(self.pending_orders) - self.current_order_index}")
+            
+            return current_order
+        return None
+
+    def clear_orders(self) -> None:
+        """
+        Limpiar todas las órdenes pendientes
+        """
+        orders_completed = self.current_order_index
+        total_orders = len(self.pending_orders)
+        
+        self.pending_orders = []
+        self.current_order_index = 0
+        self.orders_reasoning = ""
+        
+        print(f"\n✅ === SECUENCIA DE ÓRDENES COMPLETADA ===")
+        print(f"📊 Órdenes ejecutadas: {orders_completed}/{total_orders}")
+        print(f"🔄 Regresando al flujo cognitivo completo: Spatial Perception → APEIRON → SOPHIA → LOGOS")
+        print("=" * 50)
+
+    def _execute_pending_order(self) -> GameAction:
+        """
+        Ejecutar la siguiente orden pendiente de LOGOS
+        
+        Returns:
+            GameAction correspondiente a la orden pendiente
+        """
+        next_order = self.get_next_order()
+        
+        if not next_order:
+            # No hay más órdenes válidas, esto no debería pasar
+            print("❌ Error: se llamó _execute_pending_order pero no hay órdenes válidas")
+            self.clear_orders()
+            # En lugar de aleatorio, fallback que nunca debería ejecutarse
+            action = GameAction.ACTION1  # Solo como fallback de emergencia
+            action.reasoning = "Error interno: orden inválida, requiere revisión del código"
+            return action
+        
+        # Mapear la orden a GameAction
+        action_command = next_order.get("action", "").lower()
+        action_map = {
+            "move_up": 1,
+            "move_down": 2, 
+            "move_left": 3,
+            "move_right": 4,
+            "space": 5,
+            "click": 6
+        }
+        
+        suggested_action_number = action_map.get(action_command)
+        
+        if suggested_action_number:
+            action = self._map_action_number_to_game_action(suggested_action_number)
+            
+            # Configurar reasoning con información de la secuencia
+            remaining_orders = len(self.pending_orders) - self.current_order_index
+            action.reasoning = {
+                "execution_mode": "ORDEN_SECUENCIAL_LOGOS",
+                "orden_actual": f"{self.current_order_index}/{len(self.pending_orders)}",
+                "accion_ejecutada": action_command,
+                "ordenes_restantes": remaining_orders,
+                "razonamiento_secuencia": self.orders_reasoning,
+                "coordinates": next_order.get("coordinates")
+            }
+            
+            # Configurar coordenadas si es una acción compleja
+            if action.is_complex() and "coordinates" in next_order:
+                coords = next_order["coordinates"]
+                if isinstance(coords, (list, tuple)) and len(coords) >= 2:
+                    action.set_data({"x": coords[0], "y": coords[1]})
+                else:
+                    # Fallback a coordenadas aleatorias si las coordenadas no son válidas
+                    action.set_data({"x": random.randint(0, 63), "y": random.randint(0, 63)})
+            
+            # Si esta es la última orden, informar sobre el próximo flujo
+            if not self.has_pending_orders():
+                print(f"\n🏁 Esta fue la ÚLTIMA orden de la secuencia")
+                print(f"🔄 En el próximo turno: Spatial Perception analizará TODOS los cambios acumulados")
+                print(f"   → APEIRON verá la historia completa de las órdenes ejecutadas")
+            
+            print(f"\n⚡ EJECUTANDO: {action_command} (orden {self.current_order_index}/{len(self.pending_orders)})")
+            return action
+        else:
+            # Acción no reconocida
+            print(f"❌ Acción no reconocida en orden: '{action_command}'")
+            print(f"🔄 Limpiando cola de órdenes y regresando al flujo completo")
+            self.clear_orders()
+            # En lugar de aleatorio, forzar el flujo completo en el siguiente choose_action
+            action = GameAction.ACTION1  # Fallback temporal
+            action.reasoning = f"Error: acción no reconocida '{action_command}', regresando al flujo completo"
+            return action
 
     def load_markdown_file(self, file_path: str) -> str:
         """
@@ -213,6 +358,8 @@ El análisis espacial detectará todos los elementos del tablero como "aparicion
 
 ## analisis_percepcion_espacial:
 {spatial_analysis if spatial_analysis else "No hay análisis espacial disponible - primer turno o sin cambios"}
+
+IMPORTANTE: Tu respuesta DEBE ser un JSON válido que incluya el campo "timestamp" en formato ISO 8601 (ejemplo: "2025-08-05T10:30:00.000Z"). Genera el timestamp actual automáticamente.
 """
             
             print(f"\n🧠 === CONSULTANDO APEIRON (LLM1) ===")
@@ -268,7 +415,7 @@ El análisis espacial detectará todos los elementos del tablero como "aparicion
             # Cargar los archivos necesarios
             alma_content = self.load_markdown_file("alma.md")
             sophia_system_prompt = self.load_markdown_file("processus/sophia/system-prompt.md")
-            sophia_response_format = self.load_markdown_file("processus/sophia/responde.md")
+            sophia_response_format = self.load_markdown_file("processus/sophia/response.md")
             
             # Construir el prompt combinado
             combined_prompt = f"""
@@ -280,6 +427,8 @@ El análisis espacial detectará todos los elementos del tablero como "aparicion
 
 ## Vector Cognitivo Global actualizado por APEIRON:
 {apeiron_response}
+
+IMPORTANTE: Tu respuesta DEBE ser un JSON válido que incluya el campo "timestamp" en formato ISO 8601 (ejemplo: "2025-08-05T10:30:00.000Z"). Genera el timestamp actual automáticamente.
 """
             
             print(f"\n🧠 === CONSULTANDO SOPHIA (LLM2) ===")
@@ -345,6 +494,8 @@ El análisis espacial detectará todos los elementos del tablero como "aparicion
 
 ## Vector Cognitivo Global enriquecido por SOPHIA:
 {sophia_response}
+
+IMPORTANTE: Tu respuesta DEBE ser un JSON válido que incluya el campo "timestamp" en formato ISO 8601 (ejemplo: "2025-08-05T10:30:00.000Z"). Genera el timestamp actual automáticamente.
 """
             
             print(f"\n🧠 === CONSULTANDO LOGOS (LLM3) ===")
@@ -425,8 +576,8 @@ El análisis espacial detectará todos los elementos del tablero como "aparicion
                 # Definir campos requeridos según el tipo de LLM
                 required_fields = {
                     "apeiron": ["timestamp", "causal_narrative_of_turn", "conceptualized_entities", "new_turn_learnings", "synthesis_for_next_cycle"],
-                    "sophia": ["timestamp", "analisis_epistemico", "conclusiones_sobre_entidades", "reglas_del_juego_verificadas"],
-                    "logos": ["timestamp", "fase_intentio", "fase_consilium", "fase_electio", "fase_imperium"]
+                    "sophia": ["timestamp", "epistemic_analysis", "archetype_analysis", "verified_game_rules", "global_game_theories"],
+                    "logos": ["timestamp", "intent_phase", "counsel_phase", "choice_phase", "command_phase", "predictive_judgment_phase"]
                 }
                 
                 target_fields = required_fields.get(llm_type, [])
@@ -820,16 +971,37 @@ El análisis espacial detectará todos los elementos del tablero como "aparicion
             print(f"\n🔄 ACCIÓN: RESET (automática)")
             return action
         
+        # PRIORIDAD 1: Verificar si hay órdenes pendientes de LOGOS
+        if self.has_pending_orders():
+            print(f"\n📋 === EJECUTANDO ÓRDENES PENDIENTES DE LOGOS ===")
+            return self._execute_pending_order()
+        
+        # PRIORIDAD 2: Si no hay órdenes pendientes, ejecutar flujo cognitivo completo
         # Ejecutar el flujo cognitivo TOMAS (APEIRON → SOPHIA → LOGOS)
         logos_response, logos_json = self.ask_gemini_analysis(latest_frame)
         
-        # Intentar extraer la acción de la respuesta de LOGOS
+        # Intentar extraer órdenes (singular o múltiples) de la respuesta de LOGOS
         action = None
-        if logos_json and "fase_imperium" in logos_json:
-            comando_inmediato = logos_json["fase_imperium"].get("comando_inmediato_para_entorno", {})
+        if logos_json and "command_phase" in logos_json:
+            command_phase = logos_json["command_phase"]
             
-            if "action" in comando_inmediato:
-                action_command = comando_inmediato["action"]
+            # OPCIÓN 1: Verificar si LOGOS devolvió múltiples órdenes secuenciales
+            if "sequential_orders" in command_phase and command_phase["sequential_orders"]:
+                ordenes_lista = command_phase["sequential_orders"]
+                reasoning = command_phase.get("chosen_plan_reasoning", "Secuencia de órdenes de LOGOS")
+                
+                if isinstance(ordenes_lista, list) and len(ordenes_lista) > 0:
+                    # LOGOS devolvió múltiples órdenes - guardarlas para ejecución secuencial
+                    self.add_orders_from_logos(ordenes_lista, reasoning)
+                    
+                    # Ejecutar la primera orden inmediatamente
+                    return self._execute_pending_order()
+            
+            # OPCIÓN 2: Orden única (comportamiento original)
+            immediate_command = command_phase.get("immediate_command", {})
+            
+            if "action" in immediate_command:
+                action_command = immediate_command["action"]
                 
                 # Mapear comandos de texto a números de acción
                 action_map = {
@@ -849,14 +1021,15 @@ El análisis espacial detectará todos los elementos del tablero como "aparicion
                     # Configurar reasoning con toda la información de LOGOS
                     action.reasoning = {
                         "tomas_flow": "APEIRON → SOPHIA → LOGOS",
-                        "objetivo_turno": logos_json.get("fase_intentio", {}).get("objetivo_principal_del_turno", ""),
-                        "decision_final": logos_json.get("fase_electio", {}).get("decision_final", {}),
-                        "comando_inmediato": comando_inmediato,
-                        "resultado_esperado": logos_json.get("fase_iudicium_predictivo", {}).get("resultado_esperado", ""),
+                        "execution_mode": "ORDEN_UNICA_LOGOS",
+                        "objetivo_turno": logos_json.get("intent_phase", {}).get("plan_objective", ""),
+                        "decision_final": logos_json.get("choice_phase", {}).get("final_decision", {}),
+                        "comando_inmediato": immediate_command,
+                        "resultado_esperado": logos_json.get("predictive_judgment_phase", {}).get("expected_outcome", ""),
                         "suggested_action": suggested_action_number,
                     }
                     
-                    print(f"\n⚡ ACCIÓN DECIDIDA POR LOGOS: {action_command} -> {action.value}")
+                    print(f"\n⚡ ACCIÓN ÚNICA DECIDIDA POR LOGOS: {action_command} -> {action.value}")
                     print(f"🎯 Objetivo: {action.reasoning['objetivo_turno']}")
                     print(f"🔮 Resultado esperado: {action.reasoning['resultado_esperado']}")
         
