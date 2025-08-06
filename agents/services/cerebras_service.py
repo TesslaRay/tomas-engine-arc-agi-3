@@ -35,7 +35,7 @@ class CerebrasService:
     ]
 
     def __init__(
-        self, api_key: Optional[str] = None, model: str = "meta-llama/llama-4-maverick"
+        self, api_key: Optional[str] = None, model: str = "openai/gpt-oss-120b"
     ):
         """
         Initialize the Cerebras service
@@ -104,6 +104,7 @@ class CerebrasService:
         # Prepare payload
         payload = {
             "model": model_name,
+            "provider": {"only": ["Cerebras"]},
             "messages": messages,
             "temperature": temp,
             "max_tokens": self.max_output_tokens,
