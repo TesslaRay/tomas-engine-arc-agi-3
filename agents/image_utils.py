@@ -1,9 +1,13 @@
+import io
+import base64
 from PIL import Image, ImageDraw
 
 
-def grid_to_image(grid: list[list[list[int]]], scale_factor: int = 5, show_grid: bool = True) -> Image.Image:
+def grid_to_image(
+    grid: list[list[list[int]]], scale_factor: int = 5, show_grid: bool = True
+) -> Image.Image:
     """Converts a 3D grid of integers into a PIL image, stacking grid layers horizontally.
-    
+
     Args:
         grid: 3D grid of integers representing the game state
         scale_factor: Factor to scale up each pixel (default 5x)
@@ -11,21 +15,21 @@ def grid_to_image(grid: list[list[list[int]]], scale_factor: int = 5, show_grid:
     """
     color_map = [
         (255, 255, 255),
-        (0, 0, 170),    
-        (153, 153, 153),    
+        (0, 0, 170),
+        (153, 153, 153),
         (102, 102, 102),
-        (51, 51, 51),   
-        (0, 0, 0),      
-        (170, 85, 0),   
+        (51, 51, 51),
+        (0, 0, 0),
+        (170, 85, 0),
         (170, 170, 170),
-        (226, 77, 62),  
-        (73, 145, 247), 
-        (85, 255, 85),  
-        (253, 221, 0), 
-        (232, 139, 59), 
-        (255, 85, 255), 
-        (79, 204, 48), 
-        (153, 90, 208), 
+        (226, 77, 62),
+        (73, 145, 247),
+        (85, 255, 85),
+        (253, 221, 0),
+        (232, 139, 59),
+        (255, 85, 255),
+        (79, 204, 48),
+        (153, 90, 208),
         (255, 192, 203),
     ]
 
@@ -39,7 +43,9 @@ def grid_to_image(grid: list[list[list[int]]], scale_factor: int = 5, show_grid:
 
     # Add a small separator between grids if there are multiple layers
     separator_width = 5 * scale_factor if num_layers > 1 else 0
-    total_width = (width * num_layers * scale_factor) + (separator_width * (num_layers - 1))
+    total_width = (width * num_layers * scale_factor) + (
+        separator_width * (num_layers - 1)
+    )
 
     image = Image.new("RGB", (total_width, height * scale_factor), "white")
     pixels = image.load()
@@ -54,7 +60,7 @@ def grid_to_image(grid: list[list[list[int]]], scale_factor: int = 5, show_grid:
             for x in range(width):
                 color_index = grid_layer[y][x] % 17
                 color = color_map[color_index]
-                
+
                 # Fill a scale_factor x scale_factor block with the same color
                 for dy in range(scale_factor):
                     for dx in range(scale_factor):
@@ -66,26 +72,49 @@ def grid_to_image(grid: list[list[list[int]]], scale_factor: int = 5, show_grid:
     # Draw grid lines if requested
     if show_grid:
         # Create a semi-transparent overlay for the grid
-        overlay = Image.new('RGBA', image.size, (0, 0, 0, 0))
+        overlay = Image.new("RGBA", image.size, (0, 0, 0, 0))
         draw = ImageDraw.Draw(overlay)
         grid_color = (128, 128, 128, 60)  # Semi-transparent gray
-        
+
         for i in range(num_layers):
             offset_x = i * (width * scale_factor + separator_width)
-            
+
             # Draw vertical lines
             for x in range(width + 1):
                 line_x = x * scale_factor + offset_x
                 if line_x < total_width:
-                    draw.line([(line_x, 0), (line_x, height * scale_factor - 1)], fill=grid_color, width=1)
-            
+                    draw.line(
+                        [(line_x, 0), (line_x, height * scale_factor - 1)],
+                        fill=grid_color,
+                        width=1,
+                    )
+
             # Draw horizontal lines
             for y in range(height + 1):
                 line_y = y * scale_factor
                 if line_y < height * scale_factor:
-                    draw.line([(offset_x, line_y), (offset_x + width * scale_factor - 1, line_y)], fill=grid_color, width=1)
-        
-        # Composite the overlay onto the main image
-        image = Image.alpha_composite(image.convert('RGBA'), overlay).convert('RGB')
+                    draw.line(
+                        [
+                            (offset_x, line_y),
+                            (offset_x + width * scale_factor - 1, line_y),
+                        ],
+                        fill=grid_color,
+                        width=1,
+                    )
 
-    return image 
+        # Composite the overlay onto the main image
+        image = Image.alpha_composite(image.convert("RGBA"), overlay).convert("RGB")
+
+    return image
+
+
+def display_image_in_iterm2(image) -> None:
+    """Display image directly in iTerm2 using escape sequences."""
+    try:
+        img_buffer = io.BytesIO()
+        image.save(img_buffer, format="PNG")
+        img_data = img_buffer.getvalue()
+        img_base64 = base64.b64encode(img_data).decode("utf-8")
+        print(f"\033]1337;File=inline=1:{img_base64}\a")
+    except Exception as e:
+        print(f"⚠️ Error displaying image in iTerm2: {e}")

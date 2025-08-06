@@ -43,7 +43,7 @@ class TomasEngine(Agent):
             # add a small delay before resetting after GAME_OVER to avoid timeout
             return GameAction.RESET
 
-        # Detect if this is the first action turn (we have exactly 2 frames: RESET result + ready for first action)
+        # Detect if this is the first action turn
         is_first_action_turn = len(frames) == 2
 
         if is_first_action_turn:
@@ -59,7 +59,10 @@ class TomasEngine(Agent):
             print("\n🔄 Executing aisthesis -> sophia -> logos")
 
             # Step 1: Aisthesis processes visual input
-            visual_analysis = self.aisthesis.process("visual_input")
+            visual_analysis = self.aisthesis.analyze_action_effect(
+                frames=frames,
+                latest_frame=latest_frame,
+            )
 
             # Step 2: Sophia processes the analysis into reasoning
             reasoning = self.sophia.process(visual_analysis)
