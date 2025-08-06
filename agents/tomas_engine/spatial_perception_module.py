@@ -150,16 +150,16 @@ class SpatialPerceptionModule:
         # Handle both single action and multiple actions
         if isinstance(action, list):
             if len(action) == 1:
-                action_name = get_action_name(action[0], lowercase=True)
+                action_name = get_action_name(action[0])
                 primary_action = action[0]
             elif len(action) == 0:
                 return "Error: Empty action list provided."
             else:
-                action_names = [get_action_name(a, lowercase=True) for a in action]
+                action_names = [get_action_name(a) for a in action]
                 action_name = f"multiple actions ({', '.join(action_names)})"
                 primary_action = action[0]
         else:
-            action_name = get_action_name(action, lowercase=True)
+            action_name = get_action_name(action)
             primary_action = action
 
         if not np.any(difference_matrix != 0):
@@ -357,7 +357,7 @@ class SpatialPerceptionModule:
 
     def get_action_name(self, action_number: int) -> str:
         """Get the name of an action by its number."""
-        return get_action_name(action_number, lowercase=True)
+        return get_action_name(action_number)
 
     def _normalize_matrix(self, matrix) -> Optional[List[List[int]]]:
         """Normalize matrix to valid 2D format."""
@@ -668,12 +668,12 @@ class SpatialPerceptionModule:
         # Handle both single action and multiple actions for display
         if isinstance(action, list):
             if len(action) == 1:
-                action_name = get_action_name(action[0], lowercase=True)
+                action_name = get_action_name(action[0])
             else:
-                action_names = [get_action_name(a, lowercase=True) for a in action]
+                action_names = [get_action_name(a) for a in action]
                 action_name = f"multiple actions ({', '.join(action_names)})"
         else:
-            action_name = get_action_name(action, lowercase=True)
+            action_name = get_action_name(action)
 
         analysis = f"🔢 MATHEMATICAL ANALYSIS: The action ({action_name}) generated {total_changes} changes"
 
@@ -782,11 +782,9 @@ class SpatialPerceptionModule:
             # Handle both single action and multiple actions for display
             if isinstance(action, list):
                 if len(action) == 1:
-                    action_name = get_action_name(action[0], lowercase=True)
+                    action_name = get_action_name(action[0])
                 else:
-                    action_names = [
-                        get_action_name(a, lowercase=True) for a in action
-                    ]
+                    action_names = [get_action_name(a) for a in action]
                     action_name = f"multiple actions ({', '.join(action_names)})"
             else:
                 action_name = get_action_name(action, lowercase=True)

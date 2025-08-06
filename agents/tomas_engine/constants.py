@@ -15,19 +15,28 @@ ACTION_NAMES = {
     GameAction.RESET.value: "RESET",
 }
 
-# Action names in lowercase for consistency in some modules
-ACTION_NAMES_LOWER = {
-    GameAction.ACTION1.value: "up",
-    GameAction.ACTION2.value: "down",
-    GameAction.ACTION3.value: "left",
-    GameAction.ACTION4.value: "right",
-    GameAction.ACTION5.value: "space",
-    GameAction.ACTION6.value: "click",
-    GameAction.RESET.value: "reset",
+COLOR_NAMES = {
+    0: "white",
+    1: "blue",
+    2: "gray",
+    3: "dark-gray",
+    4: "darker-gray",
+    5: "black",
+    6: "brown",
+    7: "light-gray",
+    8: "red",
+    9: "ligth-blue",
+    10: "green",
+    11: "yellow",
+    12: "orange",
+    13: "magenta",
+    14: "light-green",
+    15: "purple",
+    16: "pink",
 }
 
 
-def get_action_name(action_value: int, lowercase: bool = False) -> str:
+def get_action_name(action_value: int) -> str:
     """
     Get the human-readable name for an action value.
 
@@ -38,5 +47,11 @@ def get_action_name(action_value: int, lowercase: bool = False) -> str:
     Returns:
         The human-readable action name
     """
-    mapping = ACTION_NAMES_LOWER if lowercase else ACTION_NAMES
-    return mapping.get(action_value, f"action {action_value}")
+    return ACTION_NAMES.get(action_value, f"action {action_value}")
+
+
+def get_color_name(color_value: int) -> str:
+    """
+    Get the human-readable name for a color value.
+    """
+    return COLOR_NAMES.get(color_value, f"color-{color_value}")
