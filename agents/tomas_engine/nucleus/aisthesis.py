@@ -5,11 +5,8 @@ from agents.structs import FrameData
 
 # utils
 from agents.image_utils import grid_to_image, display_image_in_iterm2
-from agents.tomas_engine.utils.matrix_utils import calculate_matrix_difference
 from agents.tomas_engine.matrix_difference_utils import (
     analyze_pixel_changes,
-    get_simple_change_summary,
-    COLOR_NAMES,
 )
 
 # constants
@@ -35,11 +32,16 @@ class NucleiAisthesis:
         previous_state = frames[-2].frame
 
         action_name = get_action_name(latest_frame.action_input.id.value)
-        print(f"\n📸 BEFORE action: {action_name}")
-        display_image_in_iterm2(grid_to_image(previous_state))
 
-        print(f"\n📸 AFTER action: {action_name}")
-        display_image_in_iterm2(grid_to_image(current_state))
+        # Generate images
+        image_before = grid_to_image(previous_state)
+        image_after = grid_to_image(current_state)
+
+        print(f"\n🖼️ BEFORE action: {action_name}")
+        display_image_in_iterm2(image_before)
+
+        print(f"\n�️ AFTER action: {action_name}")
+        display_image_in_iterm2(image_after)
 
         # Analyze pixel-level changes
         change_analysis = analyze_pixel_changes(previous_state, current_state)
@@ -64,5 +66,23 @@ class NucleiAisthesis:
         print(f"\n🔍 CHANGE ANALYSIS:")
         print(f"Detected {change_analysis['total_changes']} pixel changes:")
         print(detailed_changes)
+        
+        # Show unchanged objects
+        if "unchanged_objects" in change_analysis and change_analysis["unchanged_objects"]:
+            unchanged_objects = change_analysis["unchanged_objects"]
+            print(f"\n🔒 UNCHANGED OBJECTS ({len(unchanged_objects)} total):")
+            for obj in unchanged_objects:
+                center = obj.center
+                bounds = obj.bounds
+                print(f"  • {obj.id}: {obj.color} object with {obj.size} pixels at center ({center[0]},{center[1]}) bounds ({bounds[0]}-{bounds[1]}, {bounds[2]}-{bounds[3]})")
+        
+        # Show changed objects  
+        if "changed_objects" in change_analysis and change_analysis["changed_objects"]:
+            changed_objects = change_analysis["changed_objects"]
+            print(f"\n🔄 CHANGED OBJECTS ({len(changed_objects)} total):")
+            for obj in changed_objects:
+                center = obj.center
+                bounds = obj.bounds
+                print(f"  • {obj.id}: {obj.color} object with {obj.size} pixels at center ({center[0]},{center[1]}) bounds ({bounds[0]}-{bounds[1]}, {bounds[2]}-{bounds[3]})")
 
         return f"Action '{action_name}' completed with {change_analysis['total_changes']} pixel changes detected."

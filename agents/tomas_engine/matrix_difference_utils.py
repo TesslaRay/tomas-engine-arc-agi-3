@@ -1,5 +1,6 @@
 import numpy as np
 from typing import List, Tuple, Dict
+from dataclasses import dataclass
 
 
 # Color names mapping
@@ -22,6 +23,143 @@ COLOR_NAMES = {
     15: "purple",
     16: "pink",
 }
+
+
+@dataclass
+class SimpleObject:
+    """Simple object representation"""
+    id: str
+    color: str
+    positions: List[Tuple[int, int]]
+    size: int
+    center: Tuple[int, int]
+    bounds: Tuple[int, int, int, int]  # (min_row, max_row, min_col, max_col)
+
+
+def detect_simple_objects(matrix: List[List[int]]) -> List[SimpleObject]:
+    """Detect simple objects (connected components) in a matrix."""
+    try:
+        matrix_array = np.array(matrix)
+        if matrix_array.ndim == 3:
+            matrix_array = matrix_array.squeeze()
+        
+        if matrix_array.ndim != 2:
+            return []
+
+        objects = []
+        visited = np.zeros_like(matrix_array, dtype=bool)
+        object_counter = 1
+
+        for row in range(matrix_array.shape[0]):
+            for col in range(matrix_array.shape[1]):
+                if not visited[row, col] and matrix_array[row, col] != 0:
+                    # Find connected component
+                    positions = _flood_fill_simple(
+                        matrix_array, visited, row, col, matrix_array[row, col]
+                    )
+                    
+                    if positions:
+                        color_value = matrix_array[row, col]
+                        color_name = COLOR_NAMES.get(color_value % 17, f"color-{color_value}")
+                        
+                        # Calculate bounds and center
+                        rows = [pos[0] for pos in positions]
+                        cols = [pos[1] for pos in positions]
+                        min_row, max_row = min(rows), max(rows)
+                        min_col, max_col = min(cols), max(cols)
+                        center_row = (min_row + max_row) // 2
+                        center_col = (min_col + max_col) // 2
+                        
+                        obj = SimpleObject(
+                            id=f"OBJ_{object_counter}",
+                            color=color_name,
+                            positions=positions,
+                            size=len(positions),
+                            center=(center_row, center_col),
+                            bounds=(min_row, max_row, min_col, max_col)
+                        )
+                        objects.append(obj)
+                        object_counter += 1
+
+        return objects
+
+    except Exception as e:
+        print(f"❌ Error detecting objects: {e}")
+        return []
+
+
+def _flood_fill_simple(
+    matrix: np.ndarray,
+    visited: np.ndarray,
+    start_row: int,
+    start_col: int,
+    target_color: int,
+) -> List[Tuple[int, int]]:
+    """Simple flood fill algorithm."""
+    if (
+        start_row < 0
+        or start_row >= matrix.shape[0]
+        or start_col < 0
+        or start_col >= matrix.shape[1]
+        or visited[start_row, start_col]
+        or matrix[start_row, start_col] != target_color
+    ):
+        return []
+
+    positions = []
+    stack = [(start_row, start_col)]
+
+    while stack:
+        row, col = stack.pop()
+
+        if (
+            row < 0
+            or row >= matrix.shape[0]
+            or col < 0
+            or col >= matrix.shape[1]
+            or visited[row, col]
+            or matrix[row, col] != target_color
+        ):
+            continue
+
+        visited[row, col] = True
+        positions.append((row, col))
+
+        # Add 4-connected neighbors
+        stack.extend(
+            [(row - 1, col), (row + 1, col), (row, col - 1), (row, col + 1)]
+        )
+
+    return positions
+
+
+def compare_objects(
+    objects_before: List[SimpleObject], objects_after: List[SimpleObject]
+) -> Tuple[List[SimpleObject], List[SimpleObject]]:
+    """Compare objects between two states."""
+    unchanged_objects = []
+    changed_objects = []
+
+    def object_signature(obj: SimpleObject) -> str:
+        sorted_positions = tuple(sorted(obj.positions))
+        return f"{obj.color}_{sorted_positions}"
+
+    before_signatures = {object_signature(obj): obj for obj in objects_before}
+    after_signatures = {object_signature(obj): obj for obj in objects_after}
+
+    # Find unchanged objects
+    for signature, obj_before in before_signatures.items():
+        if signature in after_signatures:
+            unchanged_objects.append(after_signatures[signature])
+        else:
+            changed_objects.append(obj_before)
+
+    # Find new objects
+    for signature, obj_after in after_signatures.items():
+        if signature not in before_signatures:
+            changed_objects.append(obj_after)
+
+    return changed_objects, unchanged_objects
 
 
 def calculate_matrix_difference(
@@ -151,6 +289,13 @@ def analyze_pixel_changes(
                 }
             )
 
+    # Detect objects in both matrices
+    objects_before = detect_simple_objects(matrix_before)
+    objects_after = detect_simple_objects(matrix_after)
+    
+    # Compare objects
+    changed_objects, unchanged_objects = compare_objects(objects_before, objects_after)
+
     return {
         "has_changes": True,
         "total_changes": len(change_positions),
@@ -160,6 +305,10 @@ def analyze_pixel_changes(
         "transformations": transformations,
         "change_details": change_details,
         "difference_matrix": difference_matrix,
+        "objects_before": objects_before,
+        "objects_after": objects_after,
+        "changed_objects": changed_objects,
+        "unchanged_objects": unchanged_objects,
     }
 
 
@@ -188,6 +337,25 @@ def get_simple_change_summary(
         summary += f"• {analysis['disappearances']} pixels disappeared\n"
     if analysis["transformations"] > 0:
         summary += f"• {analysis['transformations']} pixels changed color\n"
+
+    # Object analysis
+    if "unchanged_objects" in analysis and analysis["unchanged_objects"]:
+        summary += f"\n🔒 UNCHANGED OBJECTS ({len(analysis['unchanged_objects'])} total):\n"
+        for obj in analysis["unchanged_objects"][:5]:  # Show first 5
+            center = obj.center
+            bounds = obj.bounds
+            summary += f"  • {obj.id}: {obj.color} object ({obj.size} pixels) at center ({center[0]},{center[1]}) bounds ({bounds[0]}-{bounds[1]}, {bounds[2]}-{bounds[3]})\n"
+        if len(analysis["unchanged_objects"]) > 5:
+            summary += f"  ... and {len(analysis['unchanged_objects']) - 5} more unchanged objects\n"
+
+    if "changed_objects" in analysis and analysis["changed_objects"]:
+        summary += f"\n🔄 CHANGED OBJECTS ({len(analysis['changed_objects'])} total):\n"
+        for obj in analysis["changed_objects"][:5]:  # Show first 5
+            center = obj.center
+            bounds = obj.bounds
+            summary += f"  • {obj.id}: {obj.color} object ({obj.size} pixels) at center ({center[0]},{center[1]}) bounds ({bounds[0]}-{bounds[1]}, {bounds[2]}-{bounds[3]})\n"
+        if len(analysis["changed_objects"]) > 5:
+            summary += f"  ... and {len(analysis['changed_objects']) - 5} more changed objects\n"
 
     # Show first few changes as examples
     if len(analysis["change_details"]) <= 10:
