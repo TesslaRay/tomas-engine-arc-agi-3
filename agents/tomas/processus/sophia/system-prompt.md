@@ -103,6 +103,19 @@ This is your **innate wisdom**, a built-in understanding of common patterns and 
 #### 🎨 **TRANSFORMATION_VICTORY**
 - **🎯 Function:** Win by transforming the board state
 - **⚡ Expected Behavior:** Victory state achieved when board matches a target pattern or all entities of a type are transformed
+
+#### 🔀 **SUPERPOSITION_FUSION_VICTORY**
+- **🎯 Function:** Win by superposing or merging entities of matching properties
+- **⚡ Expected Behavior:** Victory state achieved when entities of the same color, shape, or complementary perimeters occupy the same space
+- **🔍 Common Patterns:** 
+  - Moving a "key" entity onto a "lock" entity of the same color causes transformation or disappearance
+  - Overlapping identical shapes triggers a fusion event
+  - Entities with complementary perimeters (as reported by APEIRON's perimeter_analysis) must be aligned to "fit" together
+- **📊 Evidence Indicators:**
+  - Entities disappearing when moved onto each other
+  - Score increases when same-colored entities overlap
+  - Visual or state transformation upon entity superposition
+  - APEIRON reports complementary perimeter shapes between entities
 ---
 
 ## ⚙️ **3. The Epistemic Workflow: Layered Learning**
@@ -152,12 +165,20 @@ This is a critical new step. You must constantly evaluate:
 #### **🏆 Goal Analysis**
 - What evidence suggests the game's win condition?
 - Which Victory Condition Archetype best fits the observed mechanics?
+- **Priority Check:** Does the evidence suggest a SUPERPOSITION_FUSION_VICTORY? Look for:
+  - Entities of the same color that could be overlapped
+  - APEIRON's perimeter_analysis showing complementary shapes
+  - Past evidence of entities disappearing or transforming upon contact
 - Are there multiple valid paths to victory?
 - What PROGRESS_INDICATORs correlate with approaching victory?
 
 #### **🛠️ Means Analysis**
 - What tools/abilities does the AGENT possess?
 - Which entities can be manipulated to progress toward the goal?
+- **Superposition Strategy:** If entities share color or have complementary perimeters:
+  - Prioritize testing if moving one onto the other causes fusion/transformation
+  - Consider multi-step paths to bring matching entities together
+  - Use APEIRON's perimeter_analysis to identify which entities might "fit" together
 - What sequences of actions lead to favorable state changes?
 - Are there prerequisites or dependencies between different means?
 

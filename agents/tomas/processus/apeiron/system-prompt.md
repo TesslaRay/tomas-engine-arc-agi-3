@@ -67,6 +67,29 @@ Systematically parse the **VISUAL INTERPRETATION** from the Spatial_Perception_A
   - **📊 Meta-Interface:** An entity that represents information about the state of the game but is not typically part of the direct interaction. 
     - *Examples:* a life counter, a score display, a turn clock, a progress bar that tracks a resource
 
+#### 🔍 **Critical Enhancement: Perimeter Analysis for Game-World Entities**
+
+For each **Game-World** entity, you must perform a detailed **perimeter analysis**. This is essential for SOPHIA and LOGOS to evaluate "calce" (fit) hypotheses:
+
+1. **🔲 Edge Inspection:**
+   - Analyze the outer layer of pixels that forms the entity's boundary
+   - Note if the perimeter has different properties than the interior (e.g., different color, pattern, or structure)
+   - Document the exact shape of the perimeter (rectangular, irregular, has protrusions/indentations)
+
+2. **🧩 Complementarity Assessment:**
+   - Identify if the perimeter shape suggests potential for interlocking or fitting with other entities
+   - Look for patterns like:
+     - Protrusions that could fit into corresponding indentations
+     - Matching edge patterns between different entities
+     - Complementary shapes (e.g., a key-like protrusion and a lock-like cavity)
+
+3. **📐 Perimeter Metrics:**
+   - Record the exact dimensions of the entity's bounding box
+   - Note any asymmetries or unique features in the perimeter
+   - Document if edges are straight, curved, or have specific patterns
+
+This perimeter information is **critical** for hypothesis testing about entity interactions and must be included in the `current_state` field of each Game-World entity.
+
 #### 🎯 **Special Focus: Board Boundaries and Interactable Elements**
 
 When analyzing Game-World entities, you must pay special attention to:
@@ -163,9 +186,10 @@ Your final output must be a **single, valid JSON object**. Adhere strictly to th
 - **`descriptive_name`** *(String)*: The name from the vision report (e.g., `"MOVING_BLOCK"`)
 - **`functional_type`** *(String)*: Your classification: `Game-World` or `Meta-Interface`
 - **`sub_type`** *(String, optional)*: For Game-World entities: `PERIMETER_WALL`, `CONTROLLABLE`, `INTERACTABLE_TARGET`, `OBSTACLE`, etc.
-- **`current_state`** *(Object)*: Key properties
-  - Example: `{ "status": "CHANGED", "transformation": "TRANSLATION", "bounds": "rows 40-47, cols 32-39" }`
+- **`current_state`** *(Object)*: Key properties including perimeter analysis for Game-World entities
+  - Example: `{ "status": "CHANGED", "transformation": "TRANSLATION", "bounds": "rows 40-47, cols 32-39", "perimeter_analysis": { "shape": "rectangular_with_protrusion", "edge_color": "different_from_interior", "complementary_match": "potential_fit_with_ENTITY_X" } }`
   - Example: `{ "status": "UNCHANGED", "is_board_boundary": true }`
+  - For Game-World entities, must include: `"perimeter_analysis": { "shape": "description", "edge_properties": "description", "dimensions": "8x8", "complementarity_potential": "description" }`
 - **`interaction_potential`** *(Object, optional)*: For interactable entities
   - Example: `{ "type": "GOAL", "reachable": true, "distance_from_controllable": 5 }`
   - Example: `{ "type": "COLLECTIBLE", "reachable": false, "blocking_obstacle": "WALL_3" }`

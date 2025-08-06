@@ -18,7 +18,7 @@ from ..tomas_engine.spatial_perception_module import SpatialPerceptionModule
 class Tomas(Agent):
     """An agent that always selects actions at random."""
 
-    MAX_ACTIONS = 20
+    MAX_ACTIONS = 60
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
