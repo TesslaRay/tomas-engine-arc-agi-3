@@ -3,11 +3,12 @@ import time
 
 from ...structs import FrameData, GameAction
 
+# constants
+from agents.tomas_engine.constants import get_action_name
+
 
 class NucleiLogos:
     """Nuclei Logos"""
-
-    ACTION_NAMES = {1: "UP", 2: "DOWN", 3: "LEFT", 4: "RIGHT", 5: "SPACE", 6: "CLICK"}
 
     def __init__(self, game_id: str):
         seed = int(time.time() * 1000000) + hash(game_id) % 1000000
@@ -33,5 +34,6 @@ class NucleiLogos:
                 }
             )
 
-        print(f"🤖 LOGOS chose {self.ACTION_NAMES[action.value]} ({action.value})")
+        action_name = get_action_name(action.value)
+        print(f"🤖 LOGOS chose {action_name} ({action.value})")
         return action

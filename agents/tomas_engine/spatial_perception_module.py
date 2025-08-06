@@ -9,10 +9,12 @@ from typing import Optional, Tuple, List, Union
 
 # utils
 from ..image_utils import grid_to_image
+from .utils.matrix_utils import calculate_matrix_difference
 
 # services
 from ..services.gemini_service import GeminiService
 from ..services.cerebras_service import CerebrasService
+from .constants import get_action_name
 
 
 @dataclass
@@ -54,7 +56,6 @@ class SpatialPerceptionModule:
     """Spatial perception module that analyzes action effects on environment."""
 
     # Constants
-    ACTION_NAMES = {1: "up", 2: "down", 3: "left", 4: "right", 5: "space", 6: "click"}
 
     COLOR_NAMES = {
         0: "white",
@@ -149,16 +150,16 @@ class SpatialPerceptionModule:
         # Handle both single action and multiple actions
         if isinstance(action, list):
             if len(action) == 1:
-                action_name = self.ACTION_NAMES.get(action[0], f"action {action[0]}")
+                action_name = get_action_name(action[0], lowercase=True)
                 primary_action = action[0]
             elif len(action) == 0:
                 return "Error: Empty action list provided."
             else:
-                action_names = [self.ACTION_NAMES.get(a, f"action {a}") for a in action]
+                action_names = [get_action_name(a, lowercase=True) for a in action]
                 action_name = f"multiple actions ({', '.join(action_names)})"
                 primary_action = action[0]
         else:
-            action_name = self.ACTION_NAMES.get(action, f"action {action}")
+            action_name = get_action_name(action, lowercase=True)
             primary_action = action
 
         if not np.any(difference_matrix != 0):
@@ -356,7 +357,7 @@ class SpatialPerceptionModule:
 
     def get_action_name(self, action_number: int) -> str:
         """Get the name of an action by its number."""
-        return self.ACTION_NAMES.get(action_number, f"action {action_number}")
+        return get_action_name(action_number, lowercase=True)
 
     def _normalize_matrix(self, matrix) -> Optional[List[List[int]]]:
         """Normalize matrix to valid 2D format."""
@@ -667,12 +668,12 @@ class SpatialPerceptionModule:
         # Handle both single action and multiple actions for display
         if isinstance(action, list):
             if len(action) == 1:
-                action_name = self.ACTION_NAMES.get(action[0], f"action {action[0]}")
+                action_name = get_action_name(action[0], lowercase=True)
             else:
-                action_names = [self.ACTION_NAMES.get(a, f"action {a}") for a in action]
+                action_names = [get_action_name(a, lowercase=True) for a in action]
                 action_name = f"multiple actions ({', '.join(action_names)})"
         else:
-            action_name = self.ACTION_NAMES.get(action, f"action {action}")
+            action_name = get_action_name(action, lowercase=True)
 
         analysis = f"🔢 MATHEMATICAL ANALYSIS: The action ({action_name}) generated {total_changes} changes"
 
@@ -781,16 +782,14 @@ class SpatialPerceptionModule:
             # Handle both single action and multiple actions for display
             if isinstance(action, list):
                 if len(action) == 1:
-                    action_name = self.ACTION_NAMES.get(
-                        action[0], f"action {action[0]}"
-                    )
+                    action_name = get_action_name(action[0], lowercase=True)
                 else:
                     action_names = [
-                        self.ACTION_NAMES.get(a, f"action {a}") for a in action
+                        get_action_name(a, lowercase=True) for a in action
                     ]
                     action_name = f"multiple actions ({', '.join(action_names)})"
             else:
-                action_name = self.ACTION_NAMES.get(action, f"action {action}")
+                action_name = get_action_name(action, lowercase=True)
 
             # Generate images
             image_before = grid_to_image(grid_before)

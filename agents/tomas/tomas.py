@@ -18,6 +18,7 @@ from ..services.cerebras_service import CerebrasService
 
 # modules
 from ..tomas_engine.spatial_perception_module import SpatialPerceptionModule
+from ..tomas_engine.constants import get_action_name
 
 
 class Tomas(Agent):
@@ -773,7 +774,8 @@ IMPORTANTE: Tu respuesta DEBE ser un JSON válido que incluya el campo "timestam
 
     def _get_action_name(self, action_value: int) -> str:
         """Convertir número de acción a nombre legible"""
-        action_names = {
+        # Usar las constantes centralizadas pero con nombres en español
+        spanish_names = {
             0: "RESET",
             1: "Arriba",
             2: "Abajo",
@@ -782,7 +784,7 @@ IMPORTANTE: Tu respuesta DEBE ser un JSON válido que incluya el campo "timestam
             5: "Barra",
             6: "Click",
         }
-        return action_names.get(action_value, f"Acción {action_value}")
+        return spanish_names.get(action_value, f"Acción {action_value}")
 
     def get_memory_summary(self) -> str:
         """
