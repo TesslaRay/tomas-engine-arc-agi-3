@@ -15,27 +15,31 @@ from .spatial_perception_module import SpatialPerceptionModule
 class VisionAgentRandom(Agent):
     """An agent that always selects actions at random."""
 
-    MAX_ACTIONS = 5
+    MAX_ACTIONS = 2
 
-    def __init__(self, *args: Any, **kwargs: Any) -> None:
+    def __init__(self, *args: Any, llm_provider: str = "cerebras", **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         seed = int(time.time() * 1000000) + hash(self.game_id) % 1000000
         random.seed(seed)
 
-        print(f"🤖 Starting Vision Agent Random")
+        print(f"🤖 Starting Vision Agent Random with {llm_provider.upper()} provider")
         
-        # Inicializar el módulo de percepción espacial
-        self.spatial_perception = SpatialPerceptionModule()
-        print("✅ Spatial Perception Module initialized")
+        # Inicializar el módulo de percepción espacial con el proveedor seleccionado
+        self.spatial_perception = SpatialPerceptionModule(provider=llm_provider)
+        print(f"✅ Spatial Perception Module initialized with {llm_provider.upper()}")
         
         # Store minimal state for matrix comparison (not full history)
-        self.previous_matrix = None
-        self.pending_action = None
+        # Initialize with dummy "closed eyes" matrix like Tomas for turn 0 analysis
+        self.previous_matrix = self._create_dummy_closed_eyes_matrix()
+        self.pending_action = 0  # Action 0 represents "opening eyes" for first turn
         self.pending_coordinates = None
         
         # Test sequence: left, up, up, up, up
         self.test_actions = [3, 1, 1, 1, 1]
         self.action_index = 0
+        
+        print(f"👁️ Matriz 'ojos cerrados' inicializada: 64x64 (todo en rosa - color 16)")
+        print(f"🔄 Turno 0: Comparará el primer estado del juego vs 'ojos cerrados'")
 
     @property
     def name(self) -> str:
@@ -51,6 +55,31 @@ class VisionAgentRandom(Agent):
             ]
         )
 
+    def _create_dummy_closed_eyes_matrix(self) -> list[list[int]]:
+        """
+        Crear matriz dummy que representa 'ojos cerrados' - todo en rosa (16)
+        
+        Esta matriz se usa como estado inicial "anterior" para que el análisis 
+        espacial funcione desde el primer turno del juego, igual que en Tomas.
+        
+        Returns:
+            Matriz 64x64 llena de 16s (color rosa/pink)
+        """
+        return [[16 for _ in range(64)] for _ in range(64)]
+    
+    def is_first_turn(self) -> bool:
+        """
+        Determinar si es el primer turno comparando si previous_matrix es la dummy
+        
+        Returns:
+            True si es el primer turno (previous_matrix es toda rosa)
+        """
+        if not self.previous_matrix:
+            return True
+        
+        # Verificar si toda la matriz es rosa (16)
+        return all(all(cell == 16 for cell in row) for row in self.previous_matrix)
+    
     def show_current_map(self, latest_frame: FrameData) -> None:
         """Display the current map state as an image and save it."""
         print(f"\n=== ESTADO ACTUAL DEL MAPA ===")
@@ -117,7 +146,8 @@ class VisionAgentRandom(Agent):
         
         # Store current state for analysis after action execution
         if not latest_frame.is_empty():
-            self.previous_matrix = [row[:] for row in latest_frame.frame]  # Deep copy
+            # Only update previous_matrix after we've done the analysis
+            # This preserves the current matrix for comparison
             self.pending_action = action.value
             
             # Extract coordinates for complex actions
@@ -135,6 +165,15 @@ class VisionAgentRandom(Agent):
         if (not frame.is_empty() and self.previous_matrix is not None and 
             self.pending_action is not None):
             
+            # Determine if this is the first turn for special context
+            is_first_turn = self.is_first_turn()
+            first_turn_context = ""
+            if is_first_turn:
+                first_turn_context = " (PRIMER TURNO: 'ojos cerrados' → estado inicial del juego)"
+            
+            print(f"\n🎨 === SPATIAL PERCEPTION MODULE ===")
+            print(f"🔍 Análisis de acción {self.pending_action}{first_turn_context}")
+            
             # Execute complete analysis using the new stateless API
             analysis_result = self.spatial_perception.analyze_action_effect(
                 matrix_before=self.previous_matrix,
@@ -144,14 +183,14 @@ class VisionAgentRandom(Agent):
                 include_visual_interpretation=True
             )
             
-            print(f"\n🎨 === SPATIAL PERCEPTION MODULE ===")
             print(f"🤖 {analysis_result}")
             print("=" * 50)
             
-            # Clear the temporary state after analysis
-            self.previous_matrix = None
+            # Update previous_matrix for next comparison AFTER analysis
+            self.previous_matrix = [row[:] for row in frame.frame]  # Deep copy
             self.pending_action = None
             self.pending_coordinates = None
+            
         elif not frame.is_empty():
             print(f"\n🎨 === SPATIAL PERCEPTION MODULE ===")
             print("⚠️ No previous matrix available for comparison")

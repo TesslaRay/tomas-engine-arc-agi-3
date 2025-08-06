@@ -25,7 +25,8 @@ def grid_to_image(grid: list[list[list[int]]], scale_factor: int = 5, show_grid:
         (232, 139, 59), 
         (255, 85, 255), 
         (79, 204, 48), 
-        (153, 90, 208),  
+        (153, 90, 208), 
+        (255, 192, 203),
     ]
 
     if not grid or not grid[0]:
@@ -51,7 +52,7 @@ def grid_to_image(grid: list[list[list[int]]], scale_factor: int = 5, show_grid:
         offset_x = i * (width * scale_factor + separator_width)
         for y in range(height):
             for x in range(width):
-                color_index = grid_layer[y][x] % 16
+                color_index = grid_layer[y][x] % 17
                 color = color_map[color_index]
                 
                 # Fill a scale_factor x scale_factor block with the same color

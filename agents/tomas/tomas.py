@@ -20,12 +20,14 @@ class Tomas(Agent):
 
     MAX_ACTIONS = 20
 
-    def __init__(self, *args: Any, **kwargs: Any) -> None:
+    def __init__(self, *args: Any, llm_provider: str = "gemini", **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         seed = int(time.time() * 1000000) + hash(self.game_id) % 1000000
         random.seed(seed)
         
-        # Inicializar el servicio de Gemini
+        print(f"🧠 Starting Tomas with {llm_provider.upper()} provider")
+        
+        # Inicializar el servicio de Gemini (mantener para compatibilidad)
         try:
             self.gemini_service = GeminiService()
             print("✅ Servicio Gemini inicializado correctamente")
@@ -33,10 +35,10 @@ class Tomas(Agent):
             print(f"⚠️ Error al inicializar Gemini: {e}")
             self.gemini_service = None            
         
-        # Inicializar el módulo de percepción espacial
+        # Inicializar el módulo de percepción espacial con el proveedor seleccionado
         try:
-            self.spatial_perception = SpatialPerceptionModule()
-            print("✅ Módulo de Percepción Espacial inicializado correctamente")
+            self.spatial_perception = SpatialPerceptionModule(provider=llm_provider)
+            print(f"✅ Módulo de Percepción Espacial inicializado con {llm_provider.upper()}")
         except Exception as e:
             print(f"⚠️ Error al inicializar Percepción Espacial: {e}")
             self.spatial_perception = None
@@ -80,7 +82,7 @@ class Tomas(Agent):
         Returns:
             Matriz 64x64 llena de ceros (color negro/fondo)
         """
-        return [[0 for _ in range(64)] for _ in range(64)]
+        return [[15 for _ in range(64)] for _ in range(64)]
 
     def add_orders_from_logos(self, orders_list: List[Dict[str, Any]], reasoning: str = "") -> None:
         """

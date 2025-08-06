@@ -5,13 +5,14 @@ import numpy as np
 from dataclasses import dataclass
 
 # typing for type hints
-from typing import Optional, Tuple, List
+from typing import Optional, Tuple, List, Union
 
 # utils
 from ..image_utils import grid_to_image
 
 # services
 from ..services.gemini_service import GeminiService
+from ..services.cerebras_service import CerebrasService
 
 @dataclass
 class ObjectInfo:
@@ -53,8 +54,9 @@ class SpatialPerceptionModule:
     
     COLOR_NAMES = {
         0: "white", 1: "blue", 2: "gray", 3: "dark-gray", 4: "darker-gray", 5: "black",
-        6: "brown", 7: "light-gray", 8: "red", 9: "blue", 10: "green",
-        11: "yellow", 12: "orange", 13: "magenta", 14: "light-green", 15: "purple"
+        6: "brown", 7: "light-gray", 8: "red", 9: "navy", 10: "green",
+        11: "yellow", 12: "orange", 13: "magenta", 14: "light-green", 15: "purple",
+        16: "pink"
     }
 
     REGION_BOUNDS = {
@@ -63,29 +65,47 @@ class SpatialPerceptionModule:
         "bottom-left": (43, 64, 0, 21), "bottom-center": (43, 64, 21, 43), "bottom-right": (43, 64, 43, 64)
     }
     
-    def __init__(self):
-        """Initialize the spatial perception module."""
-        # Initialize Gemini service
-        try:
-            self.gemini_service = GeminiService()
-            print("✅ Gemini service initialized in SpatialPerceptionModule")
-        except Exception as e:
-            print(f"⚠️ Error initializing Gemini in SpatialPerceptionModule: {e}")
-            self.gemini_service = None
+    def __init__(self, provider: str = "gemini"):
+        """Initialize the spatial perception module.
+        
+        Args:
+            provider: AI provider to use ("gemini" or "cerebras")
+        """
+        self.provider = provider.lower()
+        self.llm_service = None
+        
+        # Initialize selected service
+        if self.provider == "gemini":
+            try:
+                self.llm_service = GeminiService()
+                print("✅ Gemini service initialized in SpatialPerceptionModule")
+            except Exception as e:
+                print(f"⚠️ Error initializing Gemini in SpatialPerceptionModule: {e}")
+                self.llm_service = None
+        elif self.provider == "cerebras":
+            try:
+                self.llm_service = CerebrasService()
+                print("✅ Cerebras service initialized in SpatialPerceptionModule")
+            except Exception as e:
+                print(f"⚠️ Error initializing Cerebras in SpatialPerceptionModule: {e}")
+                self.llm_service = None
+        else:
+            print(f"⚠️ Unknown provider '{provider}'. Supported: 'gemini', 'cerebras'")
+            self.llm_service = None
             
-        # Store previous Gemini response for consistency
-        self.previous_gemini_response = None
+        # Store previous response for consistency
+        self.previous_llm_response = None
     
     
     def analyze_action_effect(self, matrix_before: List[List[int]], matrix_after: List[List[int]], 
-                                action: int, coordinates: Optional[Tuple[int, int]] = None, 
+                                action: Union[int, List[int]], coordinates: Optional[Tuple[int, int]] = None, 
                                 include_visual_interpretation: bool = True) -> str:
         """Analyze the effect of an action by comparing before and after states.
         
         Args:
             matrix_before: State before the action
             matrix_after: State after the action  
-            action: Action number
+            action: Action number (int) or list of action numbers (List[int])
             coordinates: Clicked coordinates for complex actions
             include_visual_interpretation: Whether to include Gemini visual analysis
             
@@ -96,13 +116,27 @@ class SpatialPerceptionModule:
             return "Error: Invalid matrices provided."
             
         difference_matrix = self._calculate_matrix_difference(matrix_before, matrix_after)
-        action_name = self.ACTION_NAMES.get(action, f"action {action}")
+        
+        # Handle both single action and multiple actions
+        if isinstance(action, list):
+            if len(action) == 1:
+                action_name = self.ACTION_NAMES.get(action[0], f"action {action[0]}")
+                primary_action = action[0]
+            elif len(action) == 0:
+                return "Error: Empty action list provided."
+            else:
+                action_names = [self.ACTION_NAMES.get(a, f"action {a}") for a in action]
+                action_name = f"multiple actions ({', '.join(action_names)})"
+                primary_action = action[0]  
+        else:
+            action_name = self.ACTION_NAMES.get(action, f"action {action}")
+            primary_action = action
         
         if not np.any(difference_matrix != 0):
             return f"That action ({action_name}) generated no effect on the environment."
         else:
             change_analysis = self._perform_detailed_analysis(difference_matrix, matrix_before, 
-                                                           matrix_after, action, coordinates, 
+                                                           matrix_after, action, primary_action, coordinates, 
                                                            include_visual_interpretation)
             return self._generate_detailed_message(change_analysis, include_visual_interpretation)
     
@@ -202,7 +236,7 @@ class SpatialPerceptionModule:
         region = self._get_region_for_position(center_row, center_col)
         
         # Get color name
-        color_name = self.COLOR_NAMES.get(color_value % 16, f"color-{color_value}")
+        color_name = self.COLOR_NAMES.get(color_value % 17, f"color-{color_value}")
         
         return ObjectInfo(
             object_id=f"OBJ_{object_id}",
@@ -302,7 +336,7 @@ class SpatialPerceptionModule:
     def _perform_detailed_analysis(self, difference_matrix: np.ndarray, 
                                  matrix_before: List[List[int]], 
                                  matrix_after: List[List[int]], 
-                                 action: int, coordinates: Optional[Tuple[int, int]] = None,
+                                 action: Union[int, List[int]], primary_action: int, coordinates: Optional[Tuple[int, int]] = None,
                                  include_visual_interpretation: bool = True) -> ChangeAnalysis:
         """Perform detailed analysis of detected changes."""
         try:
@@ -330,7 +364,7 @@ class SpatialPerceptionModule:
             # Additional analysis
             regions_affected = self._identify_affected_regions(change_positions)
             near_coordinates = self._check_proximity_to_coordinates(change_positions, coordinates)
-            directional_consistency = self._analyze_directional_consistency(change_positions, action)
+            directional_consistency = self._analyze_directional_consistency(change_positions, primary_action)
             
             # Generate analysis
             mathematical_analysis = self._generate_mathematical_analysis(
@@ -362,14 +396,14 @@ class SpatialPerceptionModule:
                 all_objects_after=objects_after
             )
             
-            # Add Gemini interpretation if available and requested
-            if include_visual_interpretation and self.gemini_service:
+            # Add LLM interpretation if available and requested
+            if include_visual_interpretation and self.llm_service:
                 try:
-                    change_analysis.gemini_interpretation = self._get_gemini_visual_interpretation(
+                    change_analysis.gemini_interpretation = self._get_llm_visual_interpretation(
                         matrix_before, matrix_after, change_analysis, action
                     )
                 except Exception as e:
-                    print(f"⚠️ Error in Gemini interpretation: {e}")
+                    print(f"⚠️ Error in {self.provider.upper()} interpretation: {e}")
                     change_analysis.gemini_interpretation = "Error in visual interpretation"
             else:
                 change_analysis.gemini_interpretation = None
@@ -485,9 +519,17 @@ class SpatialPerceptionModule:
     def _generate_mathematical_analysis(self, total_changes: int, change_percentage: float,
                                       change_types: dict, regions_affected: List[str],
                                       directional_consistency: Optional[str], 
-                                      near_coordinates: bool, action: int) -> str:
+                                      near_coordinates: bool, action: Union[int, List[int]]) -> str:
         """Generate detailed mathematical analysis."""
-        action_name = self.ACTION_NAMES.get(action, f"action {action}")
+        # Handle both single action and multiple actions for display
+        if isinstance(action, list):
+            if len(action) == 1:
+                action_name = self.ACTION_NAMES.get(action[0], f"action {action[0]}")
+            else:
+                action_names = [self.ACTION_NAMES.get(a, f"action {a}") for a in action]
+                action_name = f"multiple actions ({', '.join(action_names)})"
+        else:
+            action_name = self.ACTION_NAMES.get(action, f"action {action}")
         
         analysis = f"🔢 MATHEMATICAL ANALYSIS: The action ({action_name}) generated {total_changes} changes"
         
@@ -541,8 +583,8 @@ class SpatialPerceptionModule:
                 before_val = before_array[row, col]
                 after_val = after_array[row, col]
                 
-                before_color = self.COLOR_NAMES.get(before_val % 16, f"color-{before_val}")
-                after_color = self.COLOR_NAMES.get(after_val % 16, f"color-{after_val}")
+                before_color = self.COLOR_NAMES.get(before_val % 17, f"color-{before_val}")
+                after_color = self.COLOR_NAMES.get(after_val % 17, f"color-{after_val}")
                 
                 specific_changes.append(f"({row},{col}): {before_color} → {after_color}")
                 
@@ -553,10 +595,10 @@ class SpatialPerceptionModule:
         
         return detailed_report 
     
-    def _get_gemini_visual_interpretation(self, matrix_before: List[List[int]], 
+    def _get_llm_visual_interpretation(self, matrix_before: List[List[int]], 
                                          matrix_after: List[List[int]], 
-                                         analysis: ChangeAnalysis, action: int) -> str:
-        """Get visual interpretation from Gemini based on the two images."""
+                                         analysis: ChangeAnalysis, action: Union[int, List[int]]) -> str:
+        """Get visual interpretation from the selected LLM service based on the two images."""
         try:
             # Validate matrices
             if not matrix_before or not matrix_before[0] or not matrix_after or not matrix_after[0]:
@@ -573,7 +615,15 @@ class SpatialPerceptionModule:
             grid_before = [normalized_before]
             grid_after = [normalized_after]
             
-            action_name = self.ACTION_NAMES.get(action, f"action {action}")
+            # Handle both single action and multiple actions for display
+            if isinstance(action, list):
+                if len(action) == 1:
+                    action_name = self.ACTION_NAMES.get(action[0], f"action {action[0]}")
+                else:
+                    action_names = [self.ACTION_NAMES.get(a, f"action {a}") for a in action]
+                    action_name = f"multiple actions ({', '.join(action_names)})"
+            else:
+                action_name = self.ACTION_NAMES.get(action, f"action {action}")
             
             # Generate images
             image_before = grid_to_image(grid_before)
@@ -587,33 +637,33 @@ class SpatialPerceptionModule:
             self._display_image_in_iterm2(image_after)
             print("=" * 50)
             
-            prompt = self._build_enhanced_gemini_prompt(action_name, analysis)
+            prompt = self._build_enhanced_llm_prompt(action_name, analysis)
             
-            print(f"\n🤖 === CONSULTING GEMINI FOR VISUAL ANALYSIS ===")
+            print(f"\n🤖 === CONSULTING {self.provider.upper()} FOR VISUAL ANALYSIS ===")
             print(f"🔄 Sending before/after images for action: {action_name}")
                         
-            response = self.gemini_service.generate_with_images_sync(
+            response = self.llm_service.generate_with_images_sync(
                 prompt=prompt,
                 images=[image_before, image_after],
                 system_prompt="You are an intelligent visual analyst specializing in interpreting changes in puzzle images. Your goal is to group pixels into coherent objects and detect logical movements based on the provided mathematical data. Provide visual analysis that a human would understand intuitively."
             )
             
-            print(f"✅ Response received from Gemini ({response.duration_ms}ms)")
+            print(f"✅ Response received from {self.provider.upper()} ({response.duration_ms}ms)")
             print(f"📝 Tokens used: {response.usage.get('total_tokens', 'N/A') if hasattr(response, 'usage') and response.usage else 'N/A'}")
             print("=" * 50)
             
             # Store this response for next analysis context
-            gemini_response = response.content.strip()
-            self.previous_gemini_response = gemini_response
+            llm_response = response.content.strip()
+            self.previous_llm_response = llm_response
             
-            return gemini_response
+            return llm_response
             
         except Exception as e:
-            print(f"❌ Error in Gemini visual interpretation: {e}")
+            print(f"❌ Error in {self.provider.upper()} visual interpretation: {e}")
             return "Error getting visual interpretation"
     
-    def _build_enhanced_gemini_prompt(self, action_name: str, analysis: ChangeAnalysis) -> str:
-        """Build the enhanced prompt for Gemini analysis including unchanged objects."""
+    def _build_enhanced_llm_prompt(self, action_name: str, analysis: ChangeAnalysis) -> str:
+        """Build the enhanced prompt for LLM analysis including unchanged objects."""
         changed_objects_info = ""
         unchanged_objects_info = ""
         previous_response_info = ""
@@ -628,10 +678,10 @@ class SpatialPerceptionModule:
             for obj in analysis.unchanged_objects:
                 unchanged_objects_info += f"- {obj.object_id}: {obj.shape} {obj.color} in {obj.region} ({obj.size} pixels)\n"
         
-        if self.previous_gemini_response:
+        if self.previous_llm_response:
             previous_response_info = f"\n### PREVIOUS ANALYSIS CONTEXT:\n"
             previous_response_info += f"In your previous analysis, you detected these objects:\n\n"
-            previous_response_info += f"{self.previous_gemini_response}\n\n"
+            previous_response_info += f"{self.previous_llm_response}\n\n"
             previous_response_info += f"**IMPORTANT**: Please maintain consistent object names and IDs when the same objects appear again. "
             previous_response_info += f"If you see objects that match previous ones, use the same naming convention. "
             previous_response_info += f"**Always use UPPERCASE for object names** (e.g., BLOCK_A, BAR_B, MARKER_C).\n"
