@@ -147,43 +147,37 @@ class LangfuseService:
             if game_id:
                 tags.append(f"game:{game_id}")
 
-            # Create a generation using the correct Langfuse v3 API
-            with self.client.start_as_current_generation(
-                name=f"gemini_{model}" + ("_vision" if has_images else "_text"),
-                model=model,
-                input={
-                    "prompt": prompt,
-                    "system_prompt": system_prompt,
-                },
-                model_parameters={
-                    "temperature": temperature,
-                },
-                metadata={
-                    **(metadata or {}),
-                    "provider": "gemini",
-                    "has_images": has_images,
-                    "game_id": game_id if game_id else None,
-                    "duration_ms": duration_ms,
-                },
-            ) as generation:
-                # Update with output, usage and tags
-                generation.update(
-                    output=response,
-                    usage_details={
-                        "input": usage.get("prompt_tokens", 0),
-                        "output": usage.get("completion_tokens", 0),
-                        "total": usage.get("total_tokens", 0),
-                    },
-                )
+            # Usar OpenTelemetry directamente para timestamps reales
+            from opentelemetry import trace
 
-                # Update trace with tags and game info
-                generation.update_trace(
-                    tags=tags,
-                    metadata={
-                        "game_id": game_id if game_id else None,
-                        "latency_ms": duration_ms,
-                    },
+            tracer = trace.get_tracer(__name__)
+
+            # Crear span con timestamps reales
+            with tracer.start_as_current_span(
+                name=f"gemini_{model}" + ("_vision" if has_images else "_text"),
+                start_time=int(start_time * 1_000_000_000),  # nanoseconds
+                end_on_exit=False,
+            ) as otel_span:
+                # Set attributes para Langfuse
+                otel_span.set_attribute("gen_ai.request.model", model)
+                otel_span.set_attribute("gen_ai.request.temperature", temperature)
+                otel_span.set_attribute(
+                    "gen_ai.usage.prompt_tokens", usage.get("prompt_tokens", 0)
                 )
+                otel_span.set_attribute(
+                    "gen_ai.usage.completion_tokens", usage.get("completion_tokens", 0)
+                )
+                otel_span.set_attribute(
+                    "gen_ai.usage.total_tokens", usage.get("total_tokens", 0)
+                )
+                otel_span.set_attribute("langfuse.tags", tags)
+                otel_span.set_attribute("game_id", game_id or "")
+
+                # Terminar con timestamp real
+                otel_span.end(int(end_time * 1_000_000_000))
+
+            # Flush para asegurar que se envíe inmediatamente
+            self.client.flush()
 
             print(
                 f"📊 Tracked Gemini call in Langfuse (latency: {duration_ms}ms, game: {game_id or 'N/A'})"
