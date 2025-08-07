@@ -4,7 +4,7 @@ class NucleiSophia:
 
     def process(self, input_string: str) -> str:
         """Process input string and return output string."""
-        print(f"🧠 SOPHIA is processing input: {input_string}")
+        print(f"🧠 SOPHIA is processing...")
 
         rules = """
         Here is SOPHIA's reasoning. I know all the game rules with 100% confidence.
@@ -25,6 +25,7 @@ The key's shape must match the exit's shape to complete the level.
 The key's shape is shown at the bottom left, with a blue square.
 The exit is inside the maze and has a black background, with a blue square and the key shape needed to advance to the next level.
 Remember, you must bring the blue piece with orange to the exit, but to win, the key must have the same shape and color as the exit.
+
 Rules for level 2:
 The 4x4 purple squares reset your attempts per level.
 If you touch the square with white, light blue, red and orange, the key changes color.

@@ -8,7 +8,7 @@ from ...structs import FrameData, GameAction
 from agents.services.cerebras_service import CerebrasService
 
 # constants
-from agents.tomas_engine.constants import get_action_name
+from agents.tomas_engine.constants import get_action_name, string_to_game_action
 
 # parser
 from agents.tomas_engine.response_parser import extract_action_from_response
@@ -33,6 +33,8 @@ class NucleiLogos:
         """Process input string and return a list of GameActions."""
         print(f"🗺️ LOGOS is choosing action sequence...")
 
+        # return [random.choice([a for a in GameAction if a is not GameAction.RESET])]
+
         is_first_action_turn = len(frames) == 2
 
         if is_first_action_turn:
@@ -48,7 +50,7 @@ class NucleiLogos:
                         "y": random.randint(0, 63),
                     }
                 )
-            
+
             action_sequence = [action]
 
         else:
@@ -70,17 +72,19 @@ class NucleiLogos:
             action_data = self._parse_action_response(cerebras_response.content)
 
             action_sequence_strings = action_data.get("action_sequence", [])
-            
+
             # Convert string actions to GameActions
             action_sequence = []
             for action_string in action_sequence_strings:
-                action = self._convert_action_string_to_game_action(action_string)
+                action = string_to_game_action(action_string)
                 if action:
-                    action.reasoning = action_data.get("reasoning", "AI-generated reasoning")
+                    action.reasoning = action_data.get(
+                        "reasoning", "AI-generated reasoning"
+                    )
                     action_sequence.append(action)
                 else:
                     print(f"⚠️ Conversion failed for '{action_string}', skipping")
-            
+
             # Fallback if no valid actions
             if not action_sequence:
                 print("⚠️ No valid actions found, using ACTION1 (up)")
@@ -134,16 +138,22 @@ class NucleiLogos:
         if action_data and action_data.get("action_sequence"):
             valid_actions = ["up", "down", "left", "right", "space", "click"]
             action_sequence = action_data["action_sequence"]
-            
+
             # Validate all actions in sequence
             if isinstance(action_sequence, list) and len(action_sequence) <= 5:
-                valid_sequence = all(action in valid_actions for action in action_sequence)
+                valid_sequence = all(
+                    action in valid_actions for action in action_sequence
+                )
                 if valid_sequence and len(action_sequence) > 0:
                     return action_data
                 else:
-                    print(f"⚠️ Invalid action sequence '{action_sequence}', contains invalid actions or is empty")
+                    print(
+                        f"⚠️ Invalid action sequence '{action_sequence}', contains invalid actions or is empty"
+                    )
             else:
-                print(f"⚠️ Invalid action sequence format '{action_sequence}', must be list of 1-5 actions")
+                print(
+                    f"⚠️ Invalid action sequence format '{action_sequence}', must be list of 1-5 actions"
+                )
 
         # Only fallback if something is really wrong
         print("⚠️ Fallback: No valid action found, trying text extraction...")
@@ -184,17 +194,3 @@ class NucleiLogos:
 
         return None
 
-    def _convert_action_string_to_game_action(
-        self, action_string: str
-    ) -> Optional[GameAction]:
-        """Convert action string to GameAction enum."""
-        action_mapping = {
-            "up": GameAction.ACTION1,
-            "down": GameAction.ACTION2,
-            "left": GameAction.ACTION3,
-            "right": GameAction.ACTION4,
-            "space": GameAction.ACTION5,
-            "click": GameAction.ACTION6,
-        }
-
-        return action_mapping.get(action_string.lower())

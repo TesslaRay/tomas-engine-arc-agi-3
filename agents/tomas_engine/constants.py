@@ -68,3 +68,16 @@ def game_action_to_string(action: GameAction) -> str:
         GameAction.ACTION6: "click",
     }
     return action_mapping.get(action, f"action_{action.value}")
+
+
+def string_to_game_action(action_string: str) -> GameAction:
+    """Convert action string to GameAction enum."""
+    action_mapping = {
+        "up": GameAction.ACTION1,
+        "down": GameAction.ACTION2,
+        "left": GameAction.ACTION3,
+        "right": GameAction.ACTION4,
+        "space": GameAction.ACTION5,
+        "click": GameAction.ACTION6,
+    }
+    return action_mapping.get(action_string.lower())

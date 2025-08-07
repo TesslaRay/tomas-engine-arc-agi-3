@@ -15,7 +15,7 @@ from agents.tomas_engine.constants import game_action_to_string
 class TomasEngine(Agent):
     """Tomas Engine Agent"""
 
-    MAX_ACTIONS = 50
+    MAX_ACTIONS = 10
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
@@ -58,7 +58,7 @@ class TomasEngine(Agent):
             action_string = game_action_to_string(next_action)
             self.executed_sequence.append(action_string)
             print(
-                f"🔄 Executing next action in sequence: {next_action} (action #{len(self.executed_sequence)} of sequence)"
+                f"\n🔄 Executing next action in sequence: {next_action} (action #{len(self.executed_sequence)} of sequence)"
             )
             return next_action
 
@@ -69,8 +69,9 @@ class TomasEngine(Agent):
         if is_first_action_turn:
             # First turn: only execute logos
             print("\n🎯 First action turn: executing LOGOS only")
-            # Clear executed sequence for first turn
+
             self.executed_sequence = []
+
             action_sequence = self.logos.process(
                 frames=frames,
                 latest_frame=latest_frame,
@@ -114,11 +115,11 @@ class TomasEngine(Agent):
             self.executed_sequence.append(action_string)
 
             print(
-                f"🎯 Executing first action: {current_action}, {len(self.pending_actions)} remaining in queue"
+                f"\n🎯 Executing first action: {current_action}, {len(self.pending_actions)} remaining in queue"
             )
             return current_action
-        else:
-            # Fallback if no actions returned
-            print("⚠️ No actions received from LOGOS, using fallback")
-            return GameAction.ACTION1
 
+        else:
+            # Just execute bar
+            print("⚠️ No actions received from LOGOS")
+            return GameAction.ACTION5
