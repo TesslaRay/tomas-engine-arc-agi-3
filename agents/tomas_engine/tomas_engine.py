@@ -12,7 +12,7 @@ from agents.tomas_engine.nucleus.logos import NucleiLogos
 class TomasEngine(Agent):
     """Tomas Engine Agent"""
 
-    MAX_ACTIONS = 5
+    MAX_ACTIONS = 30
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
@@ -50,28 +50,30 @@ class TomasEngine(Agent):
             # First turn: only execute logos
             print("\n🎯 First action turn: executing LOGOS only")
             action = self.logos.process(
-                input_string="first_turn",
                 frames=frames,
                 latest_frame=latest_frame,
+                aisthesis_analysis="",
+                sophia_reasoning="",
             )
         else:
             # Subsequent turns: aisthesis -> sophia -> logos
             print("\n🔄 Executing aisthesis -> sophia -> logos")
 
             # Step 1: Aisthesis processes visual input
-            visual_analysis = self.aisthesis.analyze_action_effect(
+            aisthesis_analysis = self.aisthesis.analyze_action_effect(
                 frames=frames,
                 latest_frame=latest_frame,
             )
 
             # Step 2: Sophia processes the analysis into reasoning
-            reasoning = self.sophia.process(visual_analysis)
+            sophia_reasoning = self.sophia.process(aisthesis_analysis)
 
             # Step 3: Logos converts reasoning to action
             action = self.logos.process(
-                input_string=reasoning,
                 frames=frames,
                 latest_frame=latest_frame,
+                aisthesis_analysis=aisthesis_analysis,
+                sophia_reasoning=sophia_reasoning,
             )
 
         return action
