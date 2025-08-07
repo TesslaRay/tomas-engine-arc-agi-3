@@ -2,9 +2,11 @@ import numpy as np
 from typing import List, Tuple
 from dataclasses import dataclass
 
-from agents.structs import FrameData
+from agents.structs import FrameData, GameAction
 
 # services
+# from agents.services.gemini_service import GeminiService
+# from agents.services.openai_service import OpenAIService
 from agents.services.gemini_service import GeminiService
 
 # utils
@@ -65,6 +67,8 @@ class NucleiAisthesis:
     }
 
     def __init__(self):
+        # self.gemini_service = GeminiService()
+        # self.openai_service = OpenAIService()
         self.gemini_service = GeminiService()
 
     def analyze_action_effect(
@@ -74,7 +78,7 @@ class NucleiAisthesis:
         executed_actions: List[str] = None,
     ) -> str:
         """Analyze the effect of an action sequence by comparing before and after states using objective object detection."""
-        print(f"🏞️ AISTHESIS is analyzing action effect...")
+        print(f"🏞️ AISTHESIS is analyzing the effect of the action sequence...")
 
         # Get current state (after all actions)
         current_state = latest_frame.frame
@@ -147,10 +151,7 @@ class NucleiAisthesis:
                     changed_objects, unchanged_objects, action_description
                 )
 
-                # Build prompt with objective data
-                prompt = self._build_aisthesis_prompt(
-                    action_description, objective_analysis, executed_actions
-                )
+                # This line was moved later after determining if it's a click
 
                 # Generate images for Gemini analysis
                 image_before = grid_to_image(previous_state)
@@ -159,16 +160,38 @@ class NucleiAisthesis:
                 print(f"\n🖼️ BEFORE: {action_description}")
                 display_image_in_iterm2(image_before)
 
+                # Check if action was a click and create click visualization
+                images_for_gemini = [image_before]
+                is_click_action = latest_frame.action_input.id == GameAction.ACTION6
+
+                if is_click_action:  # ACTION6 is click
+                    click_visualization = self._create_click_visualization(latest_frame)
+                    if click_visualization:
+                        print(f"\n🖼️ CLICK POSITION:")
+                        display_image_in_iterm2(click_visualization)
+                        images_for_gemini.append(click_visualization)
+
+                images_for_gemini.append(image_after)
                 print(f"\n🖼️ AFTER: {action_description}")
                 display_image_in_iterm2(image_after)
 
+                # Build prompt with click information
+                prompt = self._build_aisthesis_prompt(
+                    action_description,
+                    objective_analysis,
+                    executed_actions,
+                    is_click_action,
+                )
+
                 # Send to Gemini for object-focused analysis
                 aisthesis_response = self.gemini_service.generate_with_images_sync(
-                    prompt, images=[image_before, image_after]
+                    prompt,
+                    images=images_for_gemini,
+                    game_id=latest_frame.game_id,
                 )
 
                 # print(f"\n🔍 AISTHESIS RESPONSE:")
-                # print(aisthesis_response.content)
+                # print(aisthesis_response)
 
                 return aisthesis_response.content
 
@@ -403,6 +426,7 @@ class NucleiAisthesis:
         action_name: str,
         objective_analysis: str,
         executed_actions: List[str] = None,
+        is_click_action: bool = False,
     ) -> str:
         """Build the prompt for the Aisthesis module."""
         aisthesis_content = ""
@@ -432,15 +456,71 @@ class NucleiAisthesis:
 {action_name}
 """
 
+        # Describe images based on whether it was a click action
+        if is_click_action:
+            images_description = """
+## IMAGES PROVIDED
+- **IMAGE 1**: BEFORE state (game state before the click)
+- **IMAGE 2**: CLICK POSITION (64x64 white matrix with black pixel showing where click occurred)
+- **IMAGE 3**: AFTER state (game state after the click)
+"""
+        else:
+            images_description = """
+## IMAGES PROVIDED
+- **IMAGE 1**: BEFORE state (game state before the action)
+- **IMAGE 2**: AFTER state (game state after the action)
+"""
+
         prompt = f"""
 {aisthesis_content}
 
 {sequence_info}
 
+{images_description}
+
 ## MATHEMATICAL OBJECT ANALYSIS
 {objective_analysis}
 
 ## TASK
-Based on the mathematical analysis above and the BEFORE/AFTER images provided, detect and report objects in the format specified in the prompt. Focus on objective object detection - what objects exist, their properties, and how they changed.
+Based on the mathematical analysis above and the images provided, detect and report objects in the format specified in the prompt. Focus on objective object detection - what objects exist, their properties, and how they changed.
 """
         return prompt
+
+    def _create_click_visualization(self, latest_frame: FrameData):
+        """Create a 64x64 white matrix with a black pixel at the click position."""
+        try:
+            # Get click coordinates from action data
+            action_data = latest_frame.action_input.data
+            if not action_data or "x" not in action_data or "y" not in action_data:
+                print("⚠️ Click coordinates not found in action data")
+                return None
+
+            x_coord = int(action_data["x"])
+            y_coord = int(action_data["y"])
+
+            print(
+                f"🎯 Creating click visualization at coordinates: ({x_coord}, {y_coord})"
+            )
+
+            # Create 64x64 white matrix (all 0s)
+            click_matrix = np.zeros((64, 64), dtype=int)
+
+            # Set black pixel (value 5) at click position
+            # Note: x is column, y is row
+            if 0 <= y_coord < 64 and 0 <= x_coord < 64:
+                click_matrix[y_coord, x_coord] = 5  # Black pixel
+            else:
+                print(f"⚠️ Click coordinates ({x_coord}, {y_coord}) are out of bounds")
+                return None
+
+            # Convert to 3D format for grid_to_image (expecting [matrix])
+            click_matrix_3d = [click_matrix.tolist()]
+
+            # Generate image
+            click_image = grid_to_image(click_matrix_3d)
+
+            return click_image
+
+        except Exception as e:
+            print(f"⚠️ Error creating click visualization: {e}")
+            return None

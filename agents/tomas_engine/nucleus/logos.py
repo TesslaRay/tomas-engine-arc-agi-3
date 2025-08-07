@@ -5,7 +5,9 @@ from typing import Dict, Any, Optional
 from ...structs import FrameData, GameAction
 
 # services
-from agents.services.cerebras_service import CerebrasService
+# from agents.services.cerebras_service import CerebrasService
+# from agents.services.openai_service import OpenAIService
+from agents.services.gemini_service import GeminiService
 
 # constants
 from agents.tomas_engine.constants import get_action_name, string_to_game_action
@@ -21,7 +23,9 @@ class NucleiLogos:
         seed = int(time.time() * 1000000) + hash(game_id) % 1000000
         random.seed(seed)
 
-        self.cerebras_service = CerebrasService()
+        # self.cerebras_service = CerebrasService()
+        # self.openai_service = OpenAIService()
+        self.gemini_service = GeminiService()
 
     def process(
         self,
@@ -61,26 +65,65 @@ class NucleiLogos:
             # print(prompt)
             # print("=" * 50)
 
-            cerebras_response = self.cerebras_service.generate_text_sync(
+            logos_response = self.gemini_service.generate_text_sync(
                 prompt=prompt,
+                game_id=latest_frame.game_id,
             )
 
             print(f"\n🤖 LOGOS RESPONSE:")
-            print(cerebras_response.content)
+            print(logos_response.content)
 
             # Parse the action sequence from response
-            action_data = self._parse_action_response(cerebras_response.content)
+            action_data = self._parse_action_response(logos_response.content)
 
             action_sequence_strings = action_data.get("action_sequence", [])
 
             # Convert string actions to GameActions
             action_sequence = []
-            for action_string in action_sequence_strings:
+            for i, action_item in enumerate(action_sequence_strings):
+                # Handle both string actions and dict actions with coordinates
+                if isinstance(action_item, dict):
+                    # Action with coordinates format: {"action": "click", "coordinates": [x, y]}
+                    action_string = action_item.get("action", "")
+                    coordinates = action_item.get("coordinates", [])
+                    x_coord = (
+                        coordinates[0]
+                        if len(coordinates) > 0
+                        else random.randint(0, 63)
+                    )
+                    y_coord = (
+                        coordinates[1]
+                        if len(coordinates) > 1
+                        else random.randint(0, 63)
+                    )
+                else:
+                    # Simple string action format: "up", "down", etc.
+                    action_string = action_item
+                    x_coord = random.randint(0, 63)
+                    y_coord = random.randint(0, 63)
+
                 action = string_to_game_action(action_string)
                 if action:
-                    action.reasoning = action_data.get(
-                        "reasoning", "AI-generated reasoning"
-                    )
+                    # Use specific reasoning for each action if available, otherwise use general reasoning
+                    if isinstance(action_item, dict) and "reasoning" in action_item:
+                        action.reasoning = action_item["reasoning"]
+                    else:
+                        action.reasoning = action_data.get(
+                            "reasoning", "AI-generated reasoning"
+                        )
+
+                    # Set coordinates for complex actions (like click)
+                    if action.is_complex():
+                        action.set_data(
+                            {
+                                "x": x_coord,
+                                "y": y_coord,
+                            }
+                        )
+                        print(
+                            f"🎯 Set coordinates for {action_string}: ({x_coord}, {y_coord})"
+                        )
+
                     action_sequence.append(action)
                 else:
                     print(f"⚠️ Conversion failed for '{action_string}', skipping")
@@ -117,8 +160,6 @@ class NucleiLogos:
         prompt = f"""
 {logos_content}
 
-## CURRENT SITUATION
-
 **Aisthesis Analysis:**
 {aisthesis_analysis}
 
@@ -141,9 +182,28 @@ class NucleiLogos:
 
             # Validate all actions in sequence
             if isinstance(action_sequence, list) and len(action_sequence) <= 5:
-                valid_sequence = all(
-                    action in valid_actions for action in action_sequence
-                )
+                valid_sequence = True
+                for action in action_sequence:
+                    if isinstance(action, str):
+                        # Simple string action
+                        if action not in valid_actions:
+                            valid_sequence = False
+                            break
+                    elif isinstance(action, dict):
+                        # Complex action with coordinates
+                        action_name = action.get("action", "")
+                        if action_name not in valid_actions:
+                            valid_sequence = False
+                            break
+                        # Validate coordinates format
+                        coordinates = action.get("coordinates", [])
+                        if not isinstance(coordinates, list) or len(coordinates) != 2:
+                            valid_sequence = False
+                            break
+                    else:
+                        valid_sequence = False
+                        break
+
                 if valid_sequence and len(action_sequence) > 0:
                     return action_data
                 else:
@@ -193,4 +253,3 @@ class NucleiLogos:
                 }
 
         return None
-

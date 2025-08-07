@@ -7,6 +7,7 @@ from PIL import Image
 import io
 
 import google.generativeai as genai
+from .langfuse_service import LangfuseService
 
 
 @dataclass
@@ -31,13 +32,19 @@ class GeminiResponse:
 class GeminiService:
     """Servicio para interactuar con Google Gemini AI"""
 
-    def __init__(self, api_key: Optional[str] = None, model: str = "gemini-2.5-flash"):
+    def __init__(
+        self,
+        api_key: Optional[str] = None,
+        model: str = "gemini-2.5-pro",
+        enable_observability: bool = True,
+    ):
         """
         Inicializar el servicio Gemini
 
         Args:
             api_key: Clave API de Google (si no se proporciona, se usa la variable de entorno)
             model: Modelo a utilizar por defecto
+            enable_observability: Habilitar observabilidad con Langfuse
         """
         self.api_key = api_key or os.getenv("GEMINI_API_KEY")
         self.model = model
@@ -51,6 +58,9 @@ class GeminiService:
 
         # Configurar la API de Gemini
         genai.configure(api_key=self.api_key)
+
+        # Inicializar observabilidad con Langfuse
+        self.langfuse = LangfuseService(enabled=enable_observability)
 
     def is_available(self) -> bool:
         """Verificar si el servicio está disponible"""
@@ -108,6 +118,10 @@ class GeminiService:
         system_prompt: Optional[str] = None,
         temperature: Optional[float] = None,
         model: Optional[str] = None,
+        trace_name: Optional[str] = None,
+        user_id: Optional[str] = None,
+        session_id: Optional[str] = None,
+        game_id: Optional[str] = None,
     ) -> GeminiResponse:
         """
         Generar texto con Gemini usando prompt e imagen
@@ -119,6 +133,10 @@ class GeminiService:
             system_prompt: Prompt del sistema (opcional)
             temperature: Temperatura para la generación (opcional)
             model: Modelo específico a usar (opcional)
+            trace_name: Nombre del trace para Langfuse (opcional)
+            user_id: ID del usuario para Langfuse (opcional)
+            session_id: ID de la sesión para Langfuse (opcional)
+            game_id: ID del juego para tag en Langfuse (opcional)
 
         Returns:
             GeminiResponse con la respuesta generada
@@ -135,6 +153,21 @@ class GeminiService:
         # Configurar el modelo
         model_name = model or self.model
         temp = temperature if temperature is not None else self.temperature
+
+        # Crear trace para observabilidad
+        trace = self.langfuse.create_trace(
+            name=trace_name or f"gemini_async_image_generation",
+            user_id=user_id,
+            session_id=session_id,
+            metadata={
+                "model": model_name,
+                "temperature": temp,
+                "has_system_prompt": system_prompt is not None,
+                "image_source": "pil" if image else "path",
+                "async": True,
+            },
+            tags=["gemini", "vision", "async", "single-image", "generation"],
+        )
 
         model_instance = genai.GenerativeModel(
             model_name=model_name,
@@ -159,6 +192,7 @@ class GeminiService:
 
         try:
             # Medir tiempo de ejecución
+            print(f"\n📡 Calling Gemini {model_name} with image...")
             start_time = time.time()
 
             # Generar contenido
@@ -166,6 +200,7 @@ class GeminiService:
 
             end_time = time.time()
             duration_ms = int((end_time - start_time) * 1000)
+            print(f"✅ Gemini {model_name} async response received in {duration_ms}ms")
 
             # Extraer información de uso
             usage = {
@@ -179,6 +214,21 @@ class GeminiService:
                     response.usage_metadata, "total_token_count", 0
                 ),
             }
+
+            # Track en Langfuse
+            self.langfuse.track_gemini_call(
+                trace_id=trace.trace_id,
+                model=model_name,
+                prompt=prompt,
+                system_prompt=system_prompt,
+                response=response.text,
+                usage=usage,
+                start_time=start_time,
+                end_time=end_time,
+                temperature=temp,
+                has_images=True,
+                game_id=game_id,
+            )
 
             # Preparar respuesta
             gemini_response = GeminiResponse(
@@ -207,6 +257,10 @@ class GeminiService:
         system_prompt: Optional[str] = None,
         temperature: Optional[float] = None,
         model: Optional[str] = None,
+        trace_name: Optional[str] = None,
+        user_id: Optional[str] = None,
+        session_id: Optional[str] = None,
+        game_id: Optional[str] = None,
     ) -> GeminiResponse:
         """
         Versión que acepta múltiples imágenes
@@ -218,6 +272,10 @@ class GeminiService:
             system_prompt: Prompt del sistema (opcional)
             temperature: Temperatura para la generación (opcional)
             model: Modelo específico a usar (opcional)
+            trace_name: Nombre del trace para Langfuse (opcional)
+            user_id: ID del usuario para Langfuse (opcional)
+            session_id: ID de la sesión para Langfuse (opcional)
+            game_id: ID del juego para tag en Langfuse (opcional)
 
         Returns:
             GeminiResponse con la respuesta generada
@@ -240,6 +298,20 @@ class GeminiService:
         model_name = model or self.model
         temp = temperature if temperature is not None else self.temperature
 
+        # Crear trace para observabilidad
+        trace = self.langfuse.create_trace(
+            name=trace_name or f"gemini_multi_image_generation",
+            user_id=user_id,
+            session_id=session_id,
+            metadata={
+                "model": model_name,
+                "temperature": temp,
+                "has_system_prompt": system_prompt is not None,
+                "image_count": len(image_data_list),
+            },
+            tags=["gemini", "vision", "multi-image", "generation"],
+        )
+
         model_instance = genai.GenerativeModel(
             model_name=model_name,
             generation_config=genai.types.GenerationConfig(
@@ -259,11 +331,14 @@ class GeminiService:
         parts.append(prompt)
 
         # Agregar todas las imágenes
-        for i, image_data in enumerate(image_data_list):
+        for image_data in image_data_list:
             parts.append({"mime_type": image_data.mime_type, "data": image_data.data})
 
         try:
             # Medir tiempo de ejecución
+            print(
+                f"\n📡 Calling Gemini {model_name} with {len(image_data_list)} images..."
+            )
             start_time = time.time()
 
             # Generar contenido
@@ -271,6 +346,9 @@ class GeminiService:
 
             end_time = time.time()
             duration_ms = int((end_time - start_time) * 1000)
+            print(
+                f"✅ Gemini {model_name} multi-image response received in {duration_ms}ms"
+            )
 
             # Extraer información de uso
             usage = {
@@ -284,6 +362,21 @@ class GeminiService:
                     response.usage_metadata, "total_token_count", 0
                 ),
             }
+
+            # Track en Langfuse
+            self.langfuse.track_gemini_call(
+                trace_id=trace.trace_id,
+                model=model_name,
+                prompt=prompt,
+                system_prompt=system_prompt,
+                response=response.text,
+                usage=usage,
+                start_time=start_time,
+                end_time=end_time,
+                temperature=temp,
+                has_images=True,
+                game_id=game_id,
+            )
 
             # Preparar respuesta
             gemini_response = GeminiResponse(
@@ -312,6 +405,10 @@ class GeminiService:
         system_prompt: Optional[str] = None,
         temperature: Optional[float] = None,
         model: Optional[str] = None,
+        trace_name: Optional[str] = None,
+        user_id: Optional[str] = None,
+        session_id: Optional[str] = None,
+        game_id: Optional[str] = None,
     ) -> GeminiResponse:
         """
         Versión síncrona de generate_with_image
@@ -323,6 +420,10 @@ class GeminiService:
             system_prompt: Prompt del sistema (opcional)
             temperature: Temperatura para la generación (opcional)
             model: Modelo específico a usar (opcional)
+            trace_name: Nombre del trace para Langfuse (opcional)
+            user_id: ID del usuario para Langfuse (opcional)
+            session_id: ID de la sesión para Langfuse (opcional)
+            game_id: ID del juego para tag en Langfuse (opcional)
 
         Returns:
             GeminiResponse con la respuesta generada
@@ -339,6 +440,20 @@ class GeminiService:
         # Configurar el modelo
         model_name = model or self.model
         temp = temperature if temperature is not None else self.temperature
+
+        # Crear trace para observabilidad
+        trace = self.langfuse.create_trace(
+            name=trace_name or f"gemini_single_image_generation",
+            user_id=user_id,
+            session_id=session_id,
+            metadata={
+                "model": model_name,
+                "temperature": temp,
+                "has_system_prompt": system_prompt is not None,
+                "image_source": "pil" if image else "path",
+            },
+            tags=["gemini", "vision", "single-image", "generation"],
+        )
 
         model_instance = genai.GenerativeModel(
             model_name=model_name,
@@ -363,6 +478,7 @@ class GeminiService:
 
         try:
             # Medir tiempo de ejecución
+            print(f"\n📡 Calling Gemini {model_name} with single image...")
             start_time = time.time()
 
             # Generar contenido
@@ -370,6 +486,9 @@ class GeminiService:
 
             end_time = time.time()
             duration_ms = int((end_time - start_time) * 1000)
+            print(
+                f"✅ Gemini {model_name} single image response received in {duration_ms}ms"
+            )
 
             # Extraer información de uso
             usage = {
@@ -383,6 +502,142 @@ class GeminiService:
                     response.usage_metadata, "total_token_count", 0
                 ),
             }
+
+            # Track en Langfuse
+            self.langfuse.track_gemini_call(
+                trace_id=trace.trace_id,
+                model=model_name,
+                prompt=prompt,
+                system_prompt=system_prompt,
+                response=response.text,
+                usage=usage,
+                start_time=start_time,
+                end_time=end_time,
+                temperature=temp,
+                has_images=True,
+                game_id=game_id,
+            )
+
+            # Preparar respuesta
+            gemini_response = GeminiResponse(
+                content=response.text,
+                usage=usage,
+                model=model_name,
+                finish_reason=(
+                    getattr(response.candidates[0], "finish_reason", "STOP")
+                    if response.candidates
+                    else "STOP"
+                ),
+                duration_ms=duration_ms,
+            )
+
+            return gemini_response
+
+        except Exception as error:
+            print(f"Error llamando a la API de Gemini: {error}")
+            raise Exception(f"Error de la API de Gemini: {str(error)}")
+
+    def generate_text_sync(
+        self,
+        prompt: str,
+        system_prompt: Optional[str] = None,
+        temperature: Optional[float] = None,
+        model: Optional[str] = None,
+        trace_name: Optional[str] = None,
+        user_id: Optional[str] = None,
+        session_id: Optional[str] = None,
+        game_id: Optional[str] = None,
+    ) -> GeminiResponse:
+        """
+        Generar texto sin imágenes usando Gemini
+
+        Args:
+            prompt: Prompt de texto
+            system_prompt: Prompt del sistema (opcional)
+            temperature: Temperatura para la generación (opcional)
+            model: Modelo específico a usar (opcional)
+            trace_name: Nombre del trace para Langfuse (opcional)
+            user_id: ID del usuario para Langfuse (opcional)
+            session_id: ID de la sesión para Langfuse (opcional)
+            game_id: ID del juego para tag en Langfuse (opcional)
+
+        Returns:
+            GeminiResponse con la respuesta generada
+        """
+        # Configurar el modelo
+        model_name = model or self.model
+        temp = temperature if temperature is not None else self.temperature
+
+        # Crear trace para observabilidad
+        trace = self.langfuse.create_trace(
+            name=trace_name or f"gemini_text_generation",
+            user_id=user_id,
+            session_id=session_id,
+            metadata={
+                "model": model_name,
+                "temperature": temp,
+                "has_system_prompt": system_prompt is not None,
+            },
+            tags=["gemini", "text", "generation"],
+        )
+
+        model_instance = genai.GenerativeModel(
+            model_name=model_name,
+            generation_config=genai.types.GenerationConfig(
+                temperature=temp,
+                max_output_tokens=self.max_output_tokens,
+            ),
+        )
+
+        # Preparar el contenido
+        parts = []
+
+        # Agregar system prompt si se proporciona
+        if system_prompt:
+            parts.append(system_prompt)
+
+        # Agregar el prompt principal
+        parts.append(prompt)
+
+        try:
+            # Medir tiempo de ejecución
+            print(f"\n📡 Calling Gemini {model_name} text only...")
+            start_time = time.time()
+
+            # Generar contenido
+            response = model_instance.generate_content(parts)
+
+            end_time = time.time()
+            duration_ms = int((end_time - start_time) * 1000)
+            print(f"✅ Gemini {model_name} text response received in {duration_ms}ms")
+
+            # Extraer información de uso
+            usage = {
+                "prompt_tokens": getattr(
+                    response.usage_metadata, "prompt_token_count", 0
+                ),
+                "completion_tokens": getattr(
+                    response.usage_metadata, "candidates_token_count", 0
+                ),
+                "total_tokens": getattr(
+                    response.usage_metadata, "total_token_count", 0
+                ),
+            }
+
+            # Track en Langfuse
+            self.langfuse.track_gemini_call(
+                trace_id=trace.trace_id,
+                model=model_name,
+                prompt=prompt,
+                system_prompt=system_prompt,
+                response=response.text,
+                usage=usage,
+                start_time=start_time,
+                end_time=end_time,
+                temperature=temp,
+                has_images=False,
+                game_id=game_id,
+            )
 
             # Preparar respuesta
             gemini_response = GeminiResponse(
