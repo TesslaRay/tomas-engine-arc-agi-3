@@ -7,9 +7,9 @@ def extract_action_from_response(response_text: str) -> Optional[Dict[str, Any]]
     """Extract action JSON from Cerebras response. Handles all possible formats.
     
     Cerebras can respond in various formats:
-    1. Pure JSON: {"selected_action": "left", ...}
-    2. JSON in code block: ```json\n{"selected_action": "left", ...}\n```
-    3. JSON with text: "Here's my decision:\n{"selected_action": "left", ...}"
+    1. Pure JSON: {"selected_action": "left", ...} or {"action_sequence": ["up", "left"], ...}
+    2. JSON in code block: ```json\n{"action_sequence": ["up", "left"], ...}\n```
+    3. JSON with text: "Here's my decision:\n{"action_sequence": ["up", "left"], ...}"
     4. Just code block: ```\n{"selected_action": "left", ...}\n```
     
     Args:
@@ -26,7 +26,7 @@ def extract_action_from_response(response_text: str) -> Optional[Dict[str, Any]]
     # Method 1: Try direct JSON parsing first (fastest when it works)
     try:
         parsed = json.loads(response_clean)
-        if isinstance(parsed, dict) and 'selected_action' in parsed:
+        if isinstance(parsed, dict) and ('selected_action' in parsed or 'action_sequence' in parsed):
             return parsed
     except json.JSONDecodeError:
         pass
@@ -44,7 +44,7 @@ def extract_action_from_response(response_text: str) -> Optional[Dict[str, Any]]
             try:
                 json_str = json_match.group(1).strip()
                 parsed = json.loads(json_str)
-                if isinstance(parsed, dict) and 'selected_action' in parsed:
+                if isinstance(parsed, dict) and ('selected_action' in parsed or 'action_sequence' in parsed):
                     return parsed
             except json.JSONDecodeError:
                 continue
@@ -66,11 +66,11 @@ def extract_action_from_response(response_text: str) -> Optional[Dict[str, Any]]
                 json_candidates.append(candidate)
                 start_pos = -1
     
-    # Try each candidate, prefer the one with selected_action
+    # Try each candidate, prefer the one with selected_action or action_sequence
     for candidate in json_candidates:
         try:
             parsed = json.loads(candidate)
-            if isinstance(parsed, dict) and 'selected_action' in parsed:
+            if isinstance(parsed, dict) and ('selected_action' in parsed or 'action_sequence' in parsed):
                 return parsed
         except json.JSONDecodeError:
             continue
@@ -89,6 +89,18 @@ def extract_action_from_response(response_text: str) -> Optional[Dict[str, Any]]
             valid_actions = ['up', 'down', 'left', 'right', 'space', 'click']
             if action_value in valid_actions:
                 return {"selected_action": action_value}
+    
+    # Try to extract action_sequence as fallback
+    sequence_pattern = r'"action_sequence":\s*\[(.*?)\]'
+    sequence_match = re.search(sequence_pattern, response_text, re.IGNORECASE | re.DOTALL)
+    if sequence_match:
+        actions_str = sequence_match.group(1)
+        # Extract individual actions from the array
+        action_matches = re.findall(r'"([^"]+)"', actions_str)
+        valid_actions = ['up', 'down', 'left', 'right', 'space', 'click']
+        filtered_actions = [action for action in action_matches if action.lower() in valid_actions]
+        if filtered_actions and len(filtered_actions) <= 5:
+            return {"action_sequence": [action.lower() for action in filtered_actions]}
     
     return None
 

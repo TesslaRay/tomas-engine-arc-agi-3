@@ -55,3 +55,16 @@ def get_color_name(color_value: int) -> str:
     Get the human-readable name for a color value.
     """
     return COLOR_NAMES.get(color_value, f"color-{color_value}")
+
+
+def game_action_to_string(action: GameAction) -> str:
+    """Convert GameAction to string representation."""
+    action_mapping = {
+        GameAction.ACTION1: "up",
+        GameAction.ACTION2: "down",
+        GameAction.ACTION3: "left",
+        GameAction.ACTION4: "right",
+        GameAction.ACTION5: "space",
+        GameAction.ACTION6: "click",
+    }
+    return action_mapping.get(action, f"action_{action.value}")

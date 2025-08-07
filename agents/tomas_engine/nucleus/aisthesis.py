@@ -21,51 +21,105 @@ class NucleiAisthesis:
         self.gemini_service = GeminiService()
 
     def analyze_action_effect(
-        self, frames: list[FrameData], latest_frame: FrameData
+        self, frames: list[FrameData], latest_frame: FrameData, executed_actions: List[str] = None
     ) -> str:
-        """Analyze the effect of an action by comparing before and after states."""
+        """Analyze the effect of an action sequence by comparing before and after states."""
         print(f"🏞️ AISTHESIS is analyzing action effect...")
 
-        # Get current state (after action)
+        # Get current state (after all actions)
         current_state = latest_frame.frame
 
-        # Get previous state (before action)
-        previous_state = frames[-2].frame
+        # Determine how many frames back to compare based on executed actions
+        if executed_actions and len(executed_actions) > 1:
+            # Multiple actions executed, compare with state before the sequence
+            frames_back = len(executed_actions) + 1  # +1 because frames[-1] is latest, frames[-2] is previous
+            if len(frames) >= frames_back:
+                previous_state = frames[-frames_back].frame
+                action_description = f"sequence of {len(executed_actions)} actions: {', '.join(executed_actions)}"
+                print(f"🔄 Comparing current state with {frames_back-1} frames ago (before {len(executed_actions)}-action sequence)")
+            else:
+                # Fallback if not enough frames
+                previous_state = frames[-2].frame
+                action_description = f"sequence: {', '.join(executed_actions)}"
+                print(f"⚠️ Not enough frames for full comparison, using previous frame")
+        else:
+            # Single action or no action info, use previous frame
+            previous_state = frames[-2].frame
+            action_description = get_action_name(latest_frame.action_input.id.value)
+            print(f"🔄 Comparing current state with previous frame (single action)")
 
-        action_name = get_action_name(latest_frame.action_input.id.value)
+        # Check if this is a level transition by comparing scores
+        current_score = latest_frame.score
+        previous_score = frames[-2].score
+        is_level_transition = current_score > previous_score
+        
+        if is_level_transition:
+            print(f"🎉 Level transition detected! Score: {previous_score} → {current_score}")
+            
+            # Extract the new level state (handle both 2D and 3D matrices)
+            if isinstance(current_state[0][0], list):
+                # 3D matrix - use the last layer (new level)
+                new_level_state = current_state[-1]
+            else:
+                # 2D matrix - use as is
+                new_level_state = current_state
+            
+            # Generate image for new level
+            image_after = grid_to_image(current_state)
+            
+            print(f"\n🖼️ NEW LEVEL:")
+            display_image_in_iterm2(image_after)
+            
+            # For level transitions, report the new level state without comparison
+            return f"🎉 LEVEL UP! Score increased from {previous_score} to {current_score}.\n\nStarted new level:\n- Grid size: {len(new_level_state)}x{len(new_level_state[0])}\n- Ready for new challenges!"
+        
+        else:
+            # Normal single-level frame - do comparison as usual
+            # Handle single layer extraction
+            if isinstance(current_state[0][0], list):
+                current_state_2d = current_state[0]
+            else:
+                current_state_2d = current_state
 
-        # Generate images
-        image_before = grid_to_image(previous_state)
-        image_after = grid_to_image(current_state)
+            if isinstance(previous_state[0][0], list):
+                previous_state_2d = previous_state[0]
+            else:
+                previous_state_2d = previous_state
 
-        print(f"\n🖼️ BEFORE action: {action_name}")
-        display_image_in_iterm2(image_before)
+            action_name = action_description
 
-        print(f"\n🖼️ AFTER action: {action_name}")
-        display_image_in_iterm2(image_after)
+            # Generate images for comparison
+            image_before = grid_to_image(previous_state)
+            image_after = grid_to_image(current_state)
 
-        # Analyze pixel-level changes
-        change_analysis = analyze_pixel_changes(previous_state, current_state)
+            print(f"\n🖼️ BEFORE: {action_name}")
+            display_image_in_iterm2(image_before)
 
-        # Build clean summary for prompt
-        clean_summary = self._build_clean_summary(change_analysis)
-        prompt = self._build_aisthesis_prompt(action_name, clean_summary)
+            print(f"\n🖼️ AFTER: {action_name}")
+            display_image_in_iterm2(image_after)
 
-        if not change_analysis["has_changes"]:
-            return f"That action ({action_name}) generated no effect on the environment.\n {clean_summary}"
+            # Analyze pixel-level changes (use 2D matrices for comparison)
+            change_analysis = analyze_pixel_changes(previous_state_2d, current_state_2d)
 
-        # print(f"\n🔍 AISTHESIS PROMPT:")
-        # print(prompt)
+            # Build clean summary for prompt
+            clean_summary = self._build_clean_summary(change_analysis)
+            prompt = self._build_aisthesis_prompt(action_name, clean_summary, executed_actions)
 
-        # Send prompt to Gemini
-        gemini_response = self.gemini_service.generate_with_images_sync(
-            prompt, images=[image_before, image_after]
-        )
+            if not change_analysis["has_changes"]:
+                return f"That action ({action_name}) generated no effect on the environment.\n {clean_summary}"
 
-        print(f"\n🔍 GEMINI RESPONSE:")
-        print(gemini_response.content)
+            # print(f"\n🔍 AISTHESIS PROMPT:")
+            # print(prompt)
 
-        return gemini_response.content
+            # Send prompt to Gemini
+            gemini_response = self.gemini_service.generate_with_images_sync(
+                prompt, images=[image_before, image_after]
+            )
+
+            print(f"\n🔍 GEMINI RESPONSE:")
+            print(gemini_response.content)
+
+            return gemini_response.content
 
     def _build_clean_summary(self, change_analysis: dict) -> str:
         """Build a clean, concise summary for the prompt."""
@@ -102,7 +156,7 @@ class NucleiAisthesis:
 
         return summary
 
-    def _build_aisthesis_prompt(self, action_name: str, clean_summary: str) -> str:
+    def _build_aisthesis_prompt(self, action_name: str, clean_summary: str, executed_actions: List[str] = None) -> str:
         """Build the prompt for the Aisthesis module."""
         aisthesis_content = ""
         try:
@@ -117,10 +171,22 @@ class NucleiAisthesis:
             print(f"⚠️ Error reading aisthesis.md: {e}")
             aisthesis_content = "Aisthesis module for visual analysis"
 
+        # Add sequence information if multiple actions
+        sequence_info = ""
+        if executed_actions and len(executed_actions) > 1:
+            sequence_info = f"""
+Action sequence executed: {' → '.join(executed_actions)}
+(Comparing state before the entire sequence with state after all actions completed)
+"""
+        else:
+            sequence_info = f"""
+Action executed: {action_name}
+"""
+
         prompt = f"""
 {aisthesis_content}
 
-Action executed: {action_name}
+{sequence_info}
 
 {clean_summary}
 
