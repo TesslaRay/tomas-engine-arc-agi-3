@@ -126,6 +126,7 @@ class LangfuseService:
         metadata: Optional[Dict[str, Any]] = None,
         has_images: bool = False,
         game_id: Optional[str] = None,
+        nuclei: Optional[str] = None,
     ) -> Optional[str]:
         """
         Track a Gemini API call using Langfuse v3 API
@@ -139,13 +140,17 @@ class LangfuseService:
             duration_ms = int((end_time - start_time) * 1000)
 
             # Prepare tags
-            tags = ["gemini", "llm"]
+            tags = []
+
             if has_images:
                 tags.append("vision")
             else:
                 tags.append("text")
+
             if game_id:
                 tags.append(f"game:{game_id}")
+            if nuclei:
+                tags.append(f"{nuclei}")
 
             # Usar OpenTelemetry directamente para timestamps reales
             from opentelemetry import trace

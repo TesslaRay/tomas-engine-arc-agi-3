@@ -68,6 +68,7 @@ class NucleiLogos:
             logos_response = self.gemini_service.generate_text_sync(
                 prompt=prompt,
                 game_id=latest_frame.game_id,
+                nuclei="logos",
             )
 
             print(f"\n🤖 LOGOS RESPONSE:")
@@ -150,9 +151,11 @@ class NucleiLogos:
                 "agents/tomas_engine/nucleus/logos.md", "r", encoding="utf-8"
             ) as f:
                 logos_content = f.read()
+
         except FileNotFoundError:
             print("⚠️ Warning: logos.md file not found")
             logos_content = "Logos module for action selection"
+
         except Exception as e:
             print(f"⚠️ Error reading logos.md: {e}")
             logos_content = "Logos module for action selection"

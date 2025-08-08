@@ -122,6 +122,7 @@ class GeminiService:
         user_id: Optional[str] = None,
         session_id: Optional[str] = None,
         game_id: Optional[str] = None,
+        nuclei: Optional[str] = None,
     ) -> GeminiResponse:
         """
         Generar texto con Gemini usando prompt e imagen
@@ -166,7 +167,7 @@ class GeminiService:
                 "image_source": "pil" if image else "path",
                 "async": True,
             },
-            tags=["gemini", "vision", "async", "single-image", "generation"],
+            tags=["gemini", "vision", "async", "single-image", "generation", nuclei],
         )
 
         model_instance = genai.GenerativeModel(
@@ -228,6 +229,7 @@ class GeminiService:
                 temperature=temp,
                 has_images=True,
                 game_id=game_id,
+                nuclei=nuclei,
             )
 
             # Preparar respuesta
@@ -261,6 +263,7 @@ class GeminiService:
         user_id: Optional[str] = None,
         session_id: Optional[str] = None,
         game_id: Optional[str] = None,
+        nuclei: Optional[str] = None,
     ) -> GeminiResponse:
         """
         Versión que acepta múltiples imágenes
@@ -298,6 +301,11 @@ class GeminiService:
         model_name = model or self.model
         temp = temperature if temperature is not None else self.temperature
 
+        if nuclei:
+            tags = [nuclei]
+        else:
+            tags = []
+
         # Crear trace para observabilidad
         trace = self.langfuse.create_trace(
             name=trace_name or f"gemini_multi_image_generation",
@@ -309,7 +317,7 @@ class GeminiService:
                 "has_system_prompt": system_prompt is not None,
                 "image_count": len(image_data_list),
             },
-            tags=["gemini", "vision", "multi-image", "generation"],
+            tags=tags,
         )
 
         model_instance = genai.GenerativeModel(
@@ -376,6 +384,7 @@ class GeminiService:
                 temperature=temp,
                 has_images=True,
                 game_id=game_id,
+                nuclei=nuclei,
             )
 
             # Preparar respuesta
@@ -409,6 +418,7 @@ class GeminiService:
         user_id: Optional[str] = None,
         session_id: Optional[str] = None,
         game_id: Optional[str] = None,
+        nuclei: Optional[str] = None,
     ) -> GeminiResponse:
         """
         Versión síncrona de generate_with_image
@@ -443,7 +453,7 @@ class GeminiService:
 
         # Crear trace para observabilidad
         trace = self.langfuse.create_trace(
-            name=trace_name or f"gemini_single_image_generation",
+            name="Tomas ARC AGI 3",
             user_id=user_id,
             session_id=session_id,
             metadata={
@@ -452,7 +462,7 @@ class GeminiService:
                 "has_system_prompt": system_prompt is not None,
                 "image_source": "pil" if image else "path",
             },
-            tags=["gemini", "vision", "single-image", "generation"],
+            tags=["gemini"],
         )
 
         model_instance = genai.GenerativeModel(
@@ -516,6 +526,7 @@ class GeminiService:
                 temperature=temp,
                 has_images=True,
                 game_id=game_id,
+                nuclei=nuclei,
             )
 
             # Preparar respuesta
@@ -547,6 +558,7 @@ class GeminiService:
         user_id: Optional[str] = None,
         session_id: Optional[str] = None,
         game_id: Optional[str] = None,
+        nuclei: Optional[str] = None,
     ) -> GeminiResponse:
         """
         Generar texto sin imágenes usando Gemini
@@ -568,9 +580,14 @@ class GeminiService:
         model_name = model or self.model
         temp = temperature if temperature is not None else self.temperature
 
+        if nuclei:
+            tags = [nuclei]
+        else:
+            tags = []
+
         # Crear trace para observabilidad
         trace = self.langfuse.create_trace(
-            name=trace_name or f"gemini_text_generation",
+            name="Tomas ARC AGI 3",
             user_id=user_id,
             session_id=session_id,
             metadata={
@@ -578,7 +595,7 @@ class GeminiService:
                 "temperature": temp,
                 "has_system_prompt": system_prompt is not None,
             },
-            tags=["gemini", "text", "generation"],
+            tags=tags,
         )
 
         model_instance = genai.GenerativeModel(
@@ -637,6 +654,7 @@ class GeminiService:
                 temperature=temp,
                 has_images=False,
                 game_id=game_id,
+                nuclei=nuclei,
             )
 
             # Preparar respuesta

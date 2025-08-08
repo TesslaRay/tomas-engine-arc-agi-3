@@ -188,6 +188,7 @@ class NucleiAisthesis:
                     prompt,
                     images=images_for_gemini,
                     game_id=latest_frame.game_id,
+                    nuclei="aisthesis",
                 )
 
                 # print(f"\n🔍 AISTHESIS RESPONSE:")
