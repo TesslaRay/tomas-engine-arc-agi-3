@@ -8,90 +8,81 @@ from typing import Any, Dict, List, Optional
 
 from ..agent import Agent
 from ..structs import FrameData, GameAction, GameState
-
-# utils
 from ..image_utils import grid_to_image
-
-# services
 from ..services.gemini_service import GeminiService
-from ..services.cerebras_service import CerebrasService
 
-# modules
+# Módulo de percepción espacial
 from ..tomas_engine.spatial_perception_module import SpatialPerceptionModule
-from ..tomas_engine.constants import get_action_name
 
 
 class Tomas(Agent):
-    """Tomas agent"""
+    """An agent that always selects actions at random."""
 
-    MAX_ACTIONS = 20
+    MAX_ACTIONS = 60
 
-    def __init__(self, *args: Any, llm_provider: str = "gemini", **kwargs: Any) -> None:
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
+        seed = int(time.time() * 1000000) + hash(self.game_id) % 1000000
+        random.seed(seed)
 
-        print(f"🧠 Starting Tomas")
-
-        # Initialize Gemini service
+        # Inicializar el servicio de Gemini
         try:
             self.gemini_service = GeminiService()
-            print("✅ Gemini service initialized")
-
-            self.cerebras = CerebrasService()
-            print("✅ Cerebras service initialized")
+            print("✅ Servicio Gemini inicializado correctamente")
         except Exception as e:
-            print(f"⚠️ Error initializing Gemini: {e}")
+            print(f"⚠️ Error al inicializar Gemini: {e}")
             self.gemini_service = None
 
-        # Initialize spatial perception module
+        # Inicializar el módulo de percepción espacial
         try:
-            self.spatial_perception = SpatialPerceptionModule(provider=llm_provider)
-            print(f"✅ Perception module initialized with {llm_provider.upper()}")
+            self.spatial_perception = SpatialPerceptionModule()
+            print("✅ Módulo de Percepción Espacial inicializado correctamente")
         except Exception as e:
-            print(f"⚠️ Error initializing spatial perception: {e}")
+            print(f"⚠️ Error al inicializar Percepción Espacial: {e}")
             self.spatial_perception = None
 
-        # Initialize episodic memory
+        # Inicializar memoria episódica
         self.episodic_memory: List[Dict[str, Any]] = []
-        self.max_memory_size = 10  # Keep last 10 moves
+        self.max_memory_size = 10  # Mantener los últimos 10 movimientos
 
-        # Store last 3 images for analysis
+        # Almacenar las últimas 3 imágenes para análisis
         self.recent_images: List[Any] = []  # PIL Images
         self.max_images = 3
 
-        # Global vector cognition memory
+        # Sistema de memoria del Vector Cognitivo Global
         self.vcg_history: List[Dict[str, Any]] = []
-        self.max_vcg_history = 5  # Keep last 5 VCGs
+        self.max_vcg_history = 5  # Mantener los últimos 5 VCG completos
 
-        # Previous board state for differential analysis
-        # Initialize with dummy matrix "closed eyes" (64x64 of zeros)
+        # Estado anterior del tablero para análisis diferencial
+        # Inicializar con matriz dummy "ojos cerrados" (64x64 de ceros)
         self.previous_board_state = self._create_dummy_closed_eyes_matrix()
         self.previous_frame_data = None
 
-        # Previous action information for spatial analysis
+        # Información de la acción anterior para análisis espacial
         self.previous_action = None
         self.previous_action_coordinates = None
 
-        # LOGOS orders queue
-        self.pending_orders = []  # Pending orders
-        self.current_order_index = 0  # Current order index
-        self.orders_reasoning = ""  # Reasoning for the sequence of orders
+        # Sistema de cola de órdenes de LOGOS
+        self.pending_orders = []  # Cola de órdenes pendientes
+        self.current_order_index = 0  # Índice de la orden actual
+        self.orders_reasoning = ""  # Razonamiento de la secuencia de órdenes
 
         print(
-            f"👁️ Closed eyes matrix initialized: {len(self.previous_board_state)}x{len(self.previous_board_state[0])} (all black)"
+            f"👁️ Matriz 'ojos cerrados' inicializada: {len(self.previous_board_state)}x{len(self.previous_board_state[0])} (todo en negro)"
         )
-        print(f"📋 LOGOS orders queue initialized: 0 pending orders")
+        print(f"📋 Sistema de órdenes LOGOS inicializado: 0 órdenes pendientes")
 
     def _create_dummy_closed_eyes_matrix(self) -> List[List[int]]:
         """
-        Create dummy matrix that represents "closed eyes"
+        Crear matriz dummy que representa 'ojos cerrados' - todo en negro (ceros)
 
-        This matrix is used as the initial "previous" state for the spatial analysis
-        to work from the first turn of the game.
+        Esta matriz se usa como estado inicial "anterior" para que el análisis
+        espacial funcione desde el primer turno del juego.
 
         Returns:
-            Matrix 64x64 filled with 16 (pink)
+            Matriz 64x64 llena de ceros (color negro/fondo)
         """
-        return [[16 for _ in range(64)] for _ in range(64)]
+        return [[0 for _ in range(64)] for _ in range(64)]
 
     def add_orders_from_logos(
         self, orders_list: List[Dict[str, Any]], reasoning: str = ""
@@ -502,13 +493,9 @@ IMPORTANTE: Tu respuesta DEBE ser un JSON válido que incluya el campo "timestam
             print(f"   🧠 Respuesta APEIRON: {len(apeiron_response)} chars")
             print(f"   📝 Prompt Total: {len(combined_prompt)} chars")
 
-            # response = self.gemini_service.generate_with_images_sync(
-            #     prompt=combined_prompt,
-            #     images=[],  # Sophia no necesita imágenes, trabaja con conceptos
-            #     system_prompt=alma_content,
-            # )
-            response = self.cerebras.generate_text_sync(
+            response = self.gemini_service.generate_with_images_sync(
                 prompt=combined_prompt,
+                images=[],  # Sophia no necesita imágenes, trabaja con conceptos
                 system_prompt=alma_content,
             )
 
@@ -532,12 +519,13 @@ IMPORTANTE: Tu respuesta DEBE ser un JSON válido que incluya el campo "timestam
             return f"Error en SOPHIA: {str(e)}", None
 
     def ask_logos_analysis(
-        self, sophia_response: str
+        self, apeiron_response: str, sophia_response: str
     ) -> tuple[str, Optional[Dict[str, Any]]]:
         """
         Consultar a LOGOS (LLM3) para deliberación y acción
 
         Args:
+            apeiron_response: Respuesta completa de APEIRON del turno actual
             sophia_response: Respuesta completa de SOPHIA del turno actual
 
         Returns:
@@ -556,6 +544,12 @@ IMPORTANTE: Tu respuesta DEBE ser un JSON válido que incluya el campo "timestam
                 "processus/logos/response.md"
             )
 
+            # Obtener la respuesta de LOGOS del turno anterior si existe
+            logos_anterior = None
+            if self.vcg_history:
+                last_vcg = self.vcg_history[-1]
+                logos_anterior = last_vcg.get("logos_response", "")
+
             # Construir el prompt combinado
             combined_prompt = f"""
 {alma_content}
@@ -564,8 +558,14 @@ IMPORTANTE: Tu respuesta DEBE ser un JSON válido que incluya el campo "timestam
 
 {logos_response_format}
 
-## Vector Cognitivo Global enriquecido por SOPHIA:
+## Salida de APEIRON (Percepción actual):
+{apeiron_response}
+
+## Salida de SOPHIA (Episteme actual):
 {sophia_response}
+
+## Respuesta de LOGOS del turno anterior:
+{logos_anterior if logos_anterior else "Este es el primer turno - no hay LOGOS anterior"}
 
 IMPORTANTE: Tu respuesta DEBE ser un JSON válido que incluya el campo "timestamp" en formato ISO 8601 (ejemplo: "2025-08-05T10:30:00.000Z"). Genera el timestamp actual automáticamente.
 """
@@ -578,16 +578,16 @@ IMPORTANTE: Tu respuesta DEBE ser un JSON válido que incluya el campo "timestam
             print(f"   📄 Alma: {len(alma_content)} chars")
             print(f"   📄 System Prompt: {len(logos_system_prompt)} chars")
             print(f"   📄 Response Format: {len(logos_response_format)} chars")
+            print(f"   🧠 Respuesta APEIRON: {len(apeiron_response)} chars")
             print(f"   🧠 Respuesta SOPHIA: {len(sophia_response)} chars")
+            print(
+                f"   ⚡ LOGOS anterior: {len(logos_anterior) if logos_anterior else 0} chars"
+            )
             print(f"   📝 Prompt Total: {len(combined_prompt)} chars")
 
-            # response = self.gemini_service.generate_with_images_sync(
-            #     prompt=combined_prompt,
-            #     images=[],  # Logos no necesita imágenes, trabaja con estrategia
-            #     system_prompt=alma_content,
-            # )
-            response = self.cerebras.generate_text_sync(
+            response = self.gemini_service.generate_with_images_sync(
                 prompt=combined_prompt,
+                images=[],  # Logos no necesita imágenes, trabaja con estrategia
                 system_prompt=alma_content,
             )
 
@@ -660,6 +660,7 @@ IMPORTANTE: Tu respuesta DEBE ser un JSON válido que incluya el campo "timestam
                     "apeiron": [
                         "timestamp",
                         "causal_narrative_of_turn",
+                        "special_events_detected",
                         "conceptualized_entities",
                         "new_turn_learnings",
                         "synthesis_for_next_cycle",
@@ -685,6 +686,44 @@ IMPORTANTE: Tu respuesta DEBE ser un JSON válido que incluya el campo "timestam
 
                 # Validar que tenga los campos requeridos según el tipo
                 if all(field in parsed_json for field in target_fields):
+                    # Validación adicional específica para APEIRON
+                    if (
+                        llm_type == "apeiron"
+                        and "special_events_detected" in parsed_json
+                    ):
+                        special_events = parsed_json.get("special_events_detected", [])
+                        if special_events and isinstance(special_events, list):
+                            if "LEVEL_COMPLETE" in special_events:
+                                print(
+                                    f"🎆 APEIRON detectó evento LEVEL_COMPLETE - Transición de nivel inminente"
+                                )
+
+                    # Validación adicional específica para Sophia
+                    if llm_type == "sophia" and "global_game_theories" in parsed_json:
+                        theories = parsed_json.get("global_game_theories", [])
+                        if theories and isinstance(theories, list):
+                            # Verificar que al menos la teoría activa tenga los nuevos campos
+                            for theory in theories:
+                                if theory.get("status") in [
+                                    "ACTIVE",
+                                    "PARTIALLY_CORROBORATED",
+                                    "HIGHLY_CORROBORATED",
+                                ]:
+                                    if (
+                                        "victory_hypothesis" not in theory
+                                        or "means_catalog" not in theory
+                                    ):
+                                        print(
+                                            f"⚠️ Teoría activa de SOPHIA sin campos victory_hypothesis o means_catalog"
+                                        )
+                                        print(
+                                            f"   Se esperan los campos: victory_hypothesis, means_catalog"
+                                        )
+                                        print(
+                                            f"   Teoría encontrada: {list(theory.keys())}"
+                                        )
+                                        # No es un error crítico, solo una advertencia
+
                     print(f"✅ JSON válido extraído de {llm_type.upper()}")
                     return parsed_json
                 else:
@@ -774,8 +813,7 @@ IMPORTANTE: Tu respuesta DEBE ser un JSON válido que incluya el campo "timestam
 
     def _get_action_name(self, action_value: int) -> str:
         """Convertir número de acción a nombre legible"""
-        # Usar las constantes centralizadas pero con nombres en español
-        spanish_names = {
+        action_names = {
             0: "RESET",
             1: "Arriba",
             2: "Abajo",
@@ -784,7 +822,7 @@ IMPORTANTE: Tu respuesta DEBE ser un JSON válido que incluya el campo "timestam
             5: "Barra",
             6: "Click",
         }
-        return spanish_names.get(action_value, f"Acción {action_value}")
+        return action_names.get(action_value, f"Acción {action_value}")
 
     def get_memory_summary(self) -> str:
         """
@@ -995,7 +1033,9 @@ IMPORTANTE: Tu respuesta DEBE ser un JSON válido que incluya el campo "timestam
                 )
 
             # PASO 3: LOGOS - Deliberación y Acción
-            logos_response, logos_json = self.ask_logos_analysis(sophia_response)
+            logos_response, logos_json = self.ask_logos_analysis(
+                apeiron_response, sophia_response
+            )
 
             if not logos_json:
                 print("⚠️ LOGOS no devolvió JSON válido")

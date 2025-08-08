@@ -46,6 +46,8 @@ This JSON object constitutes the `llm2_epistemic_state` of the new Global Cognit
     {
       "theory_id": "...",
       "theory_statement": "...",
+      "victory_hypothesis": "...",
+      "means_catalog": [],
       "status": "..."
     }
   ]
@@ -136,8 +138,16 @@ This JSON object constitutes the `llm2_epistemic_state` of the new Global Cognit
 - **Example:** `"T-MAIN-002"`
 
 **`theory_statement`** *(String)*
-- The overarching narrative, using the language of archetypes
-- **Example:** *"Theory posits the game is a 'Key & Lock' puzzle with resource constraints. The AGENT must use the TOOL to navigate the environment and acquire a KEY. This KEY can then open a LOCK (a dynamic obstacle), allowing access to the GOAL_ZONE. All TOOL movements deplete the RESOURCE_COUNTER, so an efficient path is required."*
+- The overarching narrative, using the language of archetypes, explicitly including win conditions and means
+- **Example:** *"Theory posits a COLLECTION_VICTORY puzzle with resource constraints. The GOAL is to collect all COLLECTIBLE items (cyan pixels). The MEANS include: (1) AGENT movement commands to navigate the board, (2) Using TOOL entities to activate SWITCHes that remove OBSTACLE_DYNAMIC barriers. The main OBSTACLES are OBSTACLE_STATIC walls that create a maze-like structure. Victory is achieved when all COLLECTIBLEs are gathered, as indicated by the PROGRESS_INDICATOR reaching maximum value."*
+
+**`victory_hypothesis`** *(String)*
+- Explicit, testable statement of the win condition
+- **Example:** *"Win by collecting all 5 cyan pixel entities"*
+
+**`means_catalog`** *(Array of Strings)*
+- List of available tools, abilities, and methods for achieving victory
+- **Example:** `["AGENT movement (4 directions)", "TOOL pushing to activate switches", "KEY collection to unlock doors"]`
 
 **`status`** *(String)*
 - **Possible values:** `"ACTIVE"`, `"PARTIALLY_CORROBORATED"`, `"HIGHLY_CORROBORATED"`, `"REFUTED"`, `"SUPERSEDED"`
