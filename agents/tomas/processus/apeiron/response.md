@@ -31,6 +31,7 @@ This JSON object constitutes the `llm1_perception_state` of the new Global Cogni
 {
   "timestamp": "...",
   "causal_narrative_of_turn": "...",
+  "special_events_detected": [],
   "conceptualized_entities": [
     {
       "entity_id": "...",
@@ -65,6 +66,21 @@ This JSON object constitutes the `llm1_perception_state` of the new Global Cogni
 - **Type:** String  
 - **Requirement:** Minimum 200 tokens
 - **Purpose:** This is the story of the turn
+
+### 🎆 **`special_events_detected`**
+- **Type:** Array of Strings
+- **Requirement:** Optional field - empty array `[]` if no special events
+- **Purpose:** Detection of cataclysmic game state changes that signal level transitions
+
+**Description:** Monitor for massive, anomalous changes that cannot be explained by normal gameplay mechanics. If you observe any of the following patterns, add `"LEVEL_COMPLETE"` to this array:
+- **Mass Entity Disappearance:** >80% of game entities vanish simultaneously
+- **Score Surge:** Sudden, dramatic increase in score (>100 points or >50% increase)
+- **Global Board Transformation:** Complete visual transformation of the entire playing field
+- **State Reset Indicators:** Return to minimal entity count after complex gameplay
+
+**Examples:**
+- `[]` - Normal turn, no special events
+- `["LEVEL_COMPLETE"]` - Victory condition detected
 
 **Description:** You must construct a meticulous narrative that explicitly connects the action from the previous VCG (the **Cause**) to the changes reported in the Spatial_Perception_Analysis (the **Effects**).
 
