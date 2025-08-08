@@ -67,6 +67,7 @@ class LangfuseService:
             self.client = Langfuse(
                 secret_key=self.secret_key, public_key=self.public_key, host=self.host
             )
+            print(f"✅ Langfuse client initialized: {self.host}")
 
         except Exception as e:
             print(f"❌ Failed to initialize Langfuse: {e}")
@@ -136,57 +137,65 @@ class LangfuseService:
 
         try:
             from datetime import datetime
-
+            
             duration_ms = int((end_time - start_time) * 1000)
-
+            
             # Prepare tags
-            tags = []
-
+            tags = ["gemini", "llm"]
             if has_images:
                 tags.append("vision")
             else:
                 tags.append("text")
-
             if game_id:
                 tags.append(f"game:{game_id}")
             if nuclei:
-                tags.append(f"{nuclei}")
-
-            # Usar OpenTelemetry directamente para timestamps reales
-            from opentelemetry import trace
-
-            tracer = trace.get_tracer(__name__)
-
-            # Crear span con timestamps reales
-            with tracer.start_as_current_span(
+                tags.append(f"nuclei:{nuclei}")
+                
+            # Prepare input messages
+            input_messages = []
+            if system_prompt:
+                input_messages.append({"role": "system", "content": system_prompt})
+            input_messages.append({"role": "user", "content": prompt})
+            
+            # Use Langfuse v3 API - start and end generation manually
+            generation = self.client.start_generation(
                 name=f"gemini_{model}" + ("_vision" if has_images else "_text"),
-                start_time=int(start_time * 1_000_000_000),  # nanoseconds
-                end_on_exit=False,
-            ) as otel_span:
-                # Set attributes para Langfuse
-                otel_span.set_attribute("gen_ai.request.model", model)
-                otel_span.set_attribute("gen_ai.request.temperature", temperature)
-                otel_span.set_attribute(
-                    "gen_ai.usage.prompt_tokens", usage.get("prompt_tokens", 0)
-                )
-                otel_span.set_attribute(
-                    "gen_ai.usage.completion_tokens", usage.get("completion_tokens", 0)
-                )
-                otel_span.set_attribute(
-                    "gen_ai.usage.total_tokens", usage.get("total_tokens", 0)
-                )
-                otel_span.set_attribute("langfuse.tags", tags)
-                otel_span.set_attribute("game_id", game_id or "")
-
-                # Terminar con timestamp real
-                otel_span.end(int(end_time * 1_000_000_000))
-
-            # Flush para asegurar que se envíe inmediatamente
+                model=model,
+                input=input_messages,
+                model_parameters={
+                    "temperature": temperature,
+                },
+                metadata={
+                    "provider": "gemini",
+                    "has_images": has_images,
+                    "game_id": game_id,
+                    "nuclei": nuclei,
+                    "duration_ms": duration_ms,
+                    "tags": tags,
+                    "actual_start_time": start_time,
+                    "actual_end_time": end_time
+                }
+            )
+            
+            # Update generation with output and usage
+            generation.update(
+                output=response,
+                usage_details={
+                    "input": usage.get("prompt_tokens", 0),
+                    "output": usage.get("completion_tokens", 0),
+                    "total": usage.get("total_tokens", 0),
+                    "unit": "TOKENS"
+                }
+            )
+            
+            # End generation
+            generation.end()
+            
+            # Force flush to send data immediately
             self.client.flush()
 
-            print(
-                f"📊 Tracked Gemini call in Langfuse (latency: {duration_ms}ms, game: {game_id or 'N/A'})"
-            )
+            print(f"📊 Tracked Gemini call in Langfuse (latency: {duration_ms}ms, game: {game_id or 'N/A'}, nuclei: {nuclei or 'N/A'})")
+            print(f"   📝 Input: {len(prompt)} chars, System: {len(system_prompt or '')} chars, Output: {len(response)} chars")
             return trace_id
 
         except Exception as e:

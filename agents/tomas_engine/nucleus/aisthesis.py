@@ -151,8 +151,6 @@ class NucleiAisthesis:
                     changed_objects, unchanged_objects, action_description
                 )
 
-                # This line was moved later after determining if it's a click
-
                 # Generate images for Gemini analysis
                 image_before = grid_to_image(previous_state)
                 image_after = grid_to_image(current_state)

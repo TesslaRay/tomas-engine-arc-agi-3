@@ -28,6 +28,7 @@ COLOR_NAMES = {
 @dataclass
 class SimpleObject:
     """Simple object representation"""
+
     id: str
     color: str
     positions: List[Tuple[int, int]]
@@ -42,7 +43,7 @@ def detect_simple_objects(matrix: List[List[int]]) -> List[SimpleObject]:
         matrix_array = np.array(matrix)
         if matrix_array.ndim == 3:
             matrix_array = matrix_array.squeeze()
-        
+
         if matrix_array.ndim != 2:
             return []
 
@@ -57,11 +58,13 @@ def detect_simple_objects(matrix: List[List[int]]) -> List[SimpleObject]:
                     positions = _flood_fill_simple(
                         matrix_array, visited, row, col, matrix_array[row, col]
                     )
-                    
+
                     if positions:
                         color_value = matrix_array[row, col]
-                        color_name = COLOR_NAMES.get(color_value % 17, f"color-{color_value}")
-                        
+                        color_name = COLOR_NAMES.get(
+                            color_value % 17, f"color-{color_value}"
+                        )
+
                         # Calculate bounds and center
                         rows = [pos[0] for pos in positions]
                         cols = [pos[1] for pos in positions]
@@ -69,14 +72,14 @@ def detect_simple_objects(matrix: List[List[int]]) -> List[SimpleObject]:
                         min_col, max_col = min(cols), max(cols)
                         center_row = (min_row + max_row) // 2
                         center_col = (min_col + max_col) // 2
-                        
+
                         obj = SimpleObject(
                             id=f"OBJ_{object_counter}",
                             color=color_name,
                             positions=positions,
                             size=len(positions),
                             center=(center_row, center_col),
-                            bounds=(min_row, max_row, min_col, max_col)
+                            bounds=(min_row, max_row, min_col, max_col),
                         )
                         objects.append(obj)
                         object_counter += 1
@@ -126,9 +129,7 @@ def _flood_fill_simple(
         positions.append((row, col))
 
         # Add 4-connected neighbors
-        stack.extend(
-            [(row - 1, col), (row + 1, col), (row, col - 1), (row, col + 1)]
-        )
+        stack.extend([(row - 1, col), (row + 1, col), (row, col - 1), (row, col + 1)])
 
     return positions
 
@@ -292,7 +293,7 @@ def analyze_pixel_changes(
     # Detect objects in both matrices
     objects_before = detect_simple_objects(matrix_before)
     objects_after = detect_simple_objects(matrix_after)
-    
+
     # Compare objects
     changed_objects, unchanged_objects = compare_objects(objects_before, objects_after)
 
@@ -340,7 +341,9 @@ def get_simple_change_summary(
 
     # Object analysis
     if "unchanged_objects" in analysis and analysis["unchanged_objects"]:
-        summary += f"\n🔒 UNCHANGED OBJECTS ({len(analysis['unchanged_objects'])} total):\n"
+        summary += (
+            f"\n🔒 UNCHANGED OBJECTS ({len(analysis['unchanged_objects'])} total):\n"
+        )
         for obj in analysis["unchanged_objects"][:5]:  # Show first 5
             center = obj.center
             bounds = obj.bounds
