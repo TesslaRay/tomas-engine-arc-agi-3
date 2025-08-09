@@ -71,48 +71,72 @@ class HumanPsychologyEngine:
             },
         }
 
-    def update_psychology(self, action_result: str, made_progress: bool):
+    def update_psychology(self, progress_type: str, confidence_adjustment: float = 0.0):
         """Update the psychological state based on results"""
         self.total_turns += 1
         self.turns_in_current_state += 1
 
-        # Update counters
-        if made_progress:
+        # Update counters based on progress type
+        if progress_type in ["MAJOR_PROGRESS", "MINOR_PROGRESS"]:
             self.last_progress_turn = self.total_turns
             self.consecutive_no_progress = 0
             self.consecutive_failures = 0
             self.successful_actions += 1
-
-            # Increase confidence and reduce frustration
-            self.confidence = min(1.0, self.confidence + 0.15)
-            self.frustration = max(0.0, self.frustration - 0.1)
-            self.patience = min(1.0, self.patience + 0.05)
-
-        else:
+        elif progress_type == "VALID_ACTION":
+            # Reset failure count but don't count as full progress
+            self.consecutive_failures = 0
+            self.consecutive_no_progress += 1
+        else:  # NO_EFFECT
+            self.consecutive_failures += 1
             self.consecutive_no_progress += 1
 
-            # Determine if it was a total failure
-            if (
-                "no effect" in action_result.lower()
-                or "nothing happened" in action_result.lower()
-            ):
-                self.consecutive_failures += 1
-                self.frustration = min(
-                    1.0, self.frustration + 0.2
-                )  # High frustration by useless actions
-            else:
-                self.consecutive_failures = 0
-                self.frustration = min(1.0, self.frustration + 0.05)  # Low frustration
+        # Adjust confidence based on progress type
+        base_confidence_change = 0.0
+        base_frustration_change = 0.0
+        base_patience_change = 0.0
+        
+        if progress_type == "MAJOR_PROGRESS":
+            # Big confidence boost for major progress (score increase)
+            base_confidence_change = 0.15
+            base_frustration_change = -0.15
+            base_patience_change = 0.1
+        elif progress_type == "MINOR_PROGRESS":
+            # Small confidence boost for visible changes
+            base_confidence_change = 0.05
+            base_frustration_change = -0.05
+            base_patience_change = 0.03
+        elif progress_type == "VALID_ACTION":
+            # Tiny confidence boost for valid actions
+            base_confidence_change = 0.02
+            base_frustration_change = 0.02  # Very slight frustration
+            base_patience_change = 0.0
+        else:  # NO_EFFECT
+            # Penalty for useless actions
+            base_confidence_change = -0.05
+            base_frustration_change = 0.2
+            base_patience_change = -0.1
 
-            # Reduce confidence and patience
-            self.confidence = max(0.0, self.confidence - 0.05)
-            self.patience = max(0.0, self.patience - 0.1)
+        # Apply base changes plus prediction accuracy adjustment
+        total_confidence_change = base_confidence_change + confidence_adjustment
+        self.confidence = max(0.0, min(1.0, self.confidence + total_confidence_change))
+        self.frustration = max(0.0, min(1.0, self.frustration + base_frustration_change))
+        self.patience = max(0.0, min(1.0, self.patience + base_patience_change))
 
-        # Reduce curiosity with time (more if there are failures)
-        curiosity_decay = 0.02 if made_progress else 0.05
+        if confidence_adjustment != 0.0:
+            print(f"🎯 Confidence adjustment: {confidence_adjustment:+.2f} (prediction accuracy)")
+            print(f"📊 Total confidence change: {total_confidence_change:+.2f} (progress: {base_confidence_change:+.2f} + prediction: {confidence_adjustment:+.2f})")
+
+        # Reduce curiosity with time (less decay for any progress)
+        if progress_type in ["MAJOR_PROGRESS", "MINOR_PROGRESS"]:
+            curiosity_decay = 0.01  # Minimal decay for progress
+        elif progress_type == "VALID_ACTION":
+            curiosity_decay = 0.03  # Some decay for valid action
+        else:
+            curiosity_decay = 0.05  # More decay for failures
+
         self.curiosity_level = max(0.1, self.curiosity_level - curiosity_decay)
 
-        # Transición de estados mentales
+        # Transition mental states
         self._transition_mental_state()
 
     def _transition_mental_state(self):
@@ -208,6 +232,7 @@ class NucleiLogos:
 
         # Tracking variables for psychology
         self.last_frame_data = None
+        self.last_expected_outcome = None  # Store previous prediction for comparison
 
     def process(
         self,
@@ -220,12 +245,11 @@ class NucleiLogos:
         print(f"🗺️ LOGOS is choosing action sequence...")
 
         # Update psychology based on the previous frame
+        progress_type = "FIRST_TURN"
         if self.last_frame_data and len(frames) > 2:
-            progress_made = self._detect_progress(self.last_frame_data, latest_frame)
-            action_result = (
-                aisthesis_analysis  # Simplified - AISTHESIS tells what happened
-            )
-            self.psychology.update_psychology(action_result, progress_made)
+            progress_type = self._detect_progress(self.last_frame_data, latest_frame, aisthesis_analysis)
+            # Note: confidence_adjustment will be extracted from current Gemini response, not here
+            self.psychology.update_psychology(progress_type)
 
         # Save current frame for next time
         self.last_frame_data = latest_frame
@@ -253,7 +277,7 @@ class NucleiLogos:
 
             # Build prompt with psychological modifiers
             prompt = self._build_enhanced_logos_prompt(
-                aisthesis_analysis, sophia_reasoning, relevant_exp, failure_warnings
+                aisthesis_analysis, sophia_reasoning, relevant_exp, failure_warnings, self.last_expected_outcome
             )
 
             logos_response = self.gemini_service.generate_text_sync(
@@ -268,6 +292,16 @@ class NucleiLogos:
             # Parse with psychological considerations
             action_data = self._parse_action_response(logos_response.content)
             action_sequence_strings = action_data.get("action_sequence", [])
+            
+            # Extract and apply confidence adjustment from Gemini's analysis
+            confidence_adjustment = action_data.get("confidence_adjustment", 0.0)
+            if confidence_adjustment != 0.0:
+                # Apply the confidence adjustment that Gemini calculated based on prediction accuracy
+                self.psychology.confidence = max(0.0, min(1.0, self.psychology.confidence + confidence_adjustment))
+                print(f"🧠 Applied Gemini's confidence adjustment: {confidence_adjustment:+.2f}")
+                
+            # Store expected outcome for next iteration
+            self.last_expected_outcome = action_data.get("expected_outcome", "Unknown outcome")
 
             # Apply psychological filters to the sequence
             action_sequence_strings = self._apply_psychological_filters(
@@ -276,7 +310,7 @@ class NucleiLogos:
 
             # Convert string actions to GameActions
             action_sequence = []
-            for i, action_item in enumerate(action_sequence_strings):
+            for action_item in action_sequence_strings:
                 if isinstance(action_item, dict):
                     action_string = action_item.get("action", "")
                     coordinates = action_item.get("coordinates", [])
@@ -323,45 +357,77 @@ class NucleiLogos:
 
         # Print psychological state and sequence
         print(
-            f"🧠 State: {self.psychology.current_state}, Frustration: {self.psychology.frustration:.2f}, Confidence: {self.psychology.confidence:.2f}"
+            f"🧠 State: {self.psychology.current_state} | Progress: {progress_type} | Frustration: {self.psychology.frustration:.2f}, Confidence: {self.psychology.confidence:.2f}"
         )
         sequence_names = [get_action_name(action.value) for action in action_sequence]
         print(f"🤖 LOGOS chose sequence: {sequence_names}")
         return action_sequence
 
-    def _detect_progress(self, old_frame: FrameData, new_frame: FrameData) -> bool:
-        """Detect if progress was made by comparing frames"""
-        # Simplified - you could make this more sophisticated
-        # For now, we detect progress if the score changed or there are significant differences
+    def _detect_progress(self, old_frame: FrameData, new_frame: FrameData, aisthesis_analysis: str) -> str:
+        """Detect progress type by analyzing frames and Aisthesis analysis"""
+        # MAJOR_PROGRESS: Score increased (level up, collected item, etc.)
         if hasattr(old_frame, "score") and hasattr(new_frame, "score"):
-            return new_frame.score > old_frame.score
+            if new_frame.score > old_frame.score:
+                print(f"🎉 MAJOR_PROGRESS: Score {old_frame.score} -> {new_frame.score}")
+                return "MAJOR_PROGRESS"
 
-        # Other progress indicators (you can expand this)
-        if hasattr(old_frame, "game_state") and hasattr(new_frame, "game_state"):
-            return old_frame.game_state != new_frame.game_state
+        # Use Aisthesis analysis to detect map changes
+        analysis_lower = aisthesis_analysis.lower()
+        
+        # Check for object changes (movement, transformation, etc.)
+        if any(keyword in analysis_lower for keyword in [
+            "changed objects", "objects that changed", "changed:", "moved", 
+            "transformed", "appeared", "disappeared", "position", "shape", "color"
+        ]):
+            # Count how many objects changed
+            if "changed objects (0" in analysis_lower or "objects that changed: 0" in analysis_lower:
+                pass  # No changes, continue checking
+            else:
+                print(f"🔄 MINOR_PROGRESS: Objects changed in map")
+                return "MINOR_PROGRESS"
 
-        return False  # Default: no progress detected
+        # Check if action had some valid effect (even if no objects changed)
+        if any(keyword in analysis_lower for keyword in [
+            "detected", "analysis completed", "bounds:", "region:", "pixels"
+        ]) and not any(no_effect in analysis_lower for no_effect in [
+            "no effect", "nothing happened", "generated no effect"
+        ]):
+            print(f"✅ VALID_ACTION: Action was processed successfully")
+            return "VALID_ACTION"
+
+        # NO_EFFECT: Action was completely useless
+        if any(keyword in analysis_lower for keyword in [
+            "no effect", "nothing happened", "generated no effect", "no changes"
+        ]):
+            print(f"❌ NO_EFFECT: Action had no impact")
+            return "NO_EFFECT"
+
+        # Default: Assume valid action if we can't determine otherwise
+        print(f"❓ VALID_ACTION: Uncertain but assuming action was valid")
+        return "VALID_ACTION"
 
     def _apply_psychological_filters(self, action_sequence: list) -> list:
-        """Apply filters based on the psychological state"""
+        """Apply filters based on the psychological state
+        
+        IMPORTANT: Respects Logos's full decision - does not truncate sequences.
+        Psychology only influences the decision-making in the prompt, not the execution.
+        """
         if not action_sequence:
             return action_sequence
 
-        # Limit length based on psychological preferences
-        preferred_length = self.psychology.get_sequence_length_preference()
-
-        # In frustrated state, force 1 action sequences for quick changes
-        if self.psychology.current_state == "frustrated":
-            action_sequence = action_sequence[:1]
-        else:
-            action_sequence = action_sequence[:preferred_length]
-
-        # If we are very frustrated, add random elements
-        if self.psychology.frustration > 0.8 and len(action_sequence) == 1:
-            # 30% chance to add a completely random action
-            if random.random() < 0.3:
-                random_actions = ["up", "down", "left", "right", "space"]
-                action_sequence.append(random.choice(random_actions))
+        # RESPECT LOGOS'S DECISION: Do not truncate sequences
+        # The psychological state influences the prompt and decision-making,
+        # but once Logos decides on a sequence, we execute it fully
+        
+        print(f"🧠 Psychology influences decision-making, but respecting full sequence: {len(action_sequence)} actions")
+        
+        # Only apply psychological modifications in extreme cases
+        # If we are extremely frustrated, we might add one random action as exploration
+        if self.psychology.frustration > 0.9 and len(action_sequence) == 1 and random.random() < 0.2:
+            random_actions = ["up", "down", "left", "right", "space"]
+            additional_action = random.choice(random_actions)
+            print(f"🤯 Extreme frustration: adding random exploration action '{additional_action}'")
+            action_sequence.append(additional_action)
 
         return action_sequence
 
@@ -371,6 +437,7 @@ class NucleiLogos:
         sophia_reasoning: str,
         relevant_exp: str = "",
         failure_warnings: str = "",
+        last_expected_outcome: str = None,
     ) -> str:
         """Build enhanced prompt with psychological modifiers."""
         logos_content = ""
@@ -400,6 +467,21 @@ class NucleiLogos:
 {failure_warnings}
 """
 
+        prediction_analysis_section = ""
+        if last_expected_outcome:
+            prediction_analysis_section = f"""
+
+**Previous Action Analysis:**
+Your last expected_outcome: "{last_expected_outcome}"
+Actual AISTHESIS result: "{aisthesis_analysis[:200]}..."
+
+Compare these to determine your prediction accuracy and calculate confidence_adjustment:
+- Perfect Match: +0.2 confidence boost
+- Partial Match: +0.1 confidence boost  
+- No Match: 0 adjustment
+- Wrong Prediction: -0.1 confidence penalty
+"""
+
         psychological_section = f"""
 
 **Your current mental state:**
@@ -420,6 +502,7 @@ State: {self.psychology.current_state}
 
         prompt = f"""
 {logos_content}
+{prediction_analysis_section}
 
 {psychological_section}
 

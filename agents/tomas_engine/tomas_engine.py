@@ -24,6 +24,7 @@ class TomasEngine(Agent):
         self.logos = NucleiLogos(self.game_id)
         self.pending_actions = []  # Queue for multi-action sequences
         self.executed_sequence = []  # Track actions executed in current sequence
+        self.last_executed_action = None  # Track the most recent action for Sophia
 
     @property
     def name(self) -> str:
@@ -48,6 +49,7 @@ class TomasEngine(Agent):
             # add a small delay before resetting after GAME_OVER to avoid timeout
             self.pending_actions = []  # Clear any pending actions on reset
             self.executed_sequence = []  # Clear executed sequence on reset
+            self.last_executed_action = None  # Clear last action on reset
             return GameAction.RESET
 
         # If we have pending actions from a sequence, execute the next one
@@ -57,6 +59,7 @@ class TomasEngine(Agent):
             # Convert GameAction to string for tracking
             action_string = game_action_to_string(next_action)
             self.executed_sequence.append(action_string)
+            self.last_executed_action = action_string  # Track for Sophia
             print(
                 f"\n🔄 Executing next action in sequence: {next_action} (action #{len(self.executed_sequence)} of sequence)"
             )
@@ -93,8 +96,15 @@ class TomasEngine(Agent):
                 executed_actions=executed_actions,
             )
 
-            # Step 2: Sophia processes the analysis into reasoning
-            sophia_reasoning = self.sophia.process(aisthesis_analysis)
+            # Step 2: Sophia learns from action-effect pair
+            # Determine what action was executed that caused this effect
+            executed_action_for_sophia = self.last_executed_action or "unknown"
+            
+            sophia_reasoning = self.sophia.process(
+                action_executed=executed_action_for_sophia,
+                aisthesis_analysis=aisthesis_analysis,
+                game_context={"frame": len(frames), "executed_sequence": self.executed_sequence}
+            )
 
             # Step 3: Logos converts reasoning to action sequence
             action_sequence = self.logos.process(
@@ -113,6 +123,7 @@ class TomasEngine(Agent):
             self.executed_sequence = []
             action_string = game_action_to_string(current_action)
             self.executed_sequence.append(action_string)
+            self.last_executed_action = action_string  # Track for Sophia
 
             print(
                 f"\n🎯 Executing first action: {current_action}, {len(self.pending_actions)} remaining in queue"

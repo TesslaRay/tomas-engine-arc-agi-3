@@ -7,9 +7,10 @@ from agents.structs import FrameData, GameAction
 # memory
 from .shared_memory import SharedMemory
 
+# utils
+from agents.tomas_engine.utils.matrix import calculate_matrix_difference
+
 # services
-# from agents.services.gemini_service import GeminiService
-# from agents.services.openai_service import OpenAIService
 from agents.services.gemini_service import GeminiService
 
 # utils
@@ -70,8 +71,6 @@ class NucleiAisthesis:
     }
 
     def __init__(self):
-        # self.gemini_service = GeminiService()
-        # self.openai_service = OpenAIService()
         self.gemini_service = GeminiService()
 
     def analyze_action_effect(
@@ -133,6 +132,12 @@ class NucleiAisthesis:
             current_state_2d = self._normalize_to_2d(current_state)
             previous_state_2d = self._normalize_to_2d(previous_state)
 
+            # Early exit: Check if there are any changes at all
+            difference_matrix = calculate_matrix_difference(previous_state_2d, current_state_2d)
+            if not np.any(difference_matrix != 0):
+                print(f"⚡ No pixel changes detected - skipping expensive analysis")
+                return f"That action ({action_description}) generated no effect on the environment."
+
             print(f"\n🔍 Using objective object detection...")
 
             # Detect objects in both states
@@ -145,17 +150,18 @@ class NucleiAisthesis:
                     objects_before, objects_after
                 )
 
-                # Check if there are any changes
-                if not changed_objects and not objects_before and not objects_after:
-                    return f"That action ({action_description}) generated no effect on the environment."
-
-                # Consultar memoria compartida para experiencias similares
+                # Consult memory for similar experiences
                 memory = SharedMemory.get_instance()
-                similar_analyses = memory.get_relevant_experience(f"objects {len(changed_objects)} changed")
-                
+                similar_analyses = memory.get_relevant_experience(
+                    f"objects {len(changed_objects)} changed"
+                )
+
                 # Generate objective analysis
                 objective_analysis = self._generate_object_analysis(
-                    changed_objects, unchanged_objects, action_description, similar_analyses
+                    changed_objects,
+                    unchanged_objects,
+                    action_description,
+                    similar_analyses,
                 )
 
                 # Generate images for Gemini analysis
@@ -202,9 +208,9 @@ class NucleiAisthesis:
                 # Remember successful experience in shared memory with more context
                 memory_context = f"objects {len(changed_objects)} changed {len(unchanged_objects)} unchanged"
                 SharedMemory.get_instance().remember_success(
-                    memory_context, 
-                    action_description, 
-                    f"Detected {len(changed_objects)} changes successfully"
+                    memory_context,
+                    action_description,
+                    f"Detected {len(changed_objects)} changes successfully",
                 )
 
                 return aisthesis_response.content
@@ -434,7 +440,7 @@ class NucleiAisthesis:
             analysis += f"  • Objects that changed: {len(changed_objects)}\n"
             analysis += f"  • Objects that remained: {len(unchanged_objects)} ({unchanged_percentage:.1f}%)\n"
 
-        # Agregar experiencias similares si existen
+        # Add similar experiences if they exist
         if similar_analyses:
             analysis += f"\n🧠 SIMILAR PAST EXPERIENCES:\n{similar_analyses}\n"
 
