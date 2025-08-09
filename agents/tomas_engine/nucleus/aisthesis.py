@@ -4,6 +4,9 @@ from dataclasses import dataclass
 
 from agents.structs import FrameData, GameAction
 
+# memory
+from .shared_memory import SharedMemory
+
 # services
 # from agents.services.gemini_service import GeminiService
 # from agents.services.openai_service import OpenAIService
@@ -146,9 +149,13 @@ class NucleiAisthesis:
                 if not changed_objects and not objects_before and not objects_after:
                     return f"That action ({action_description}) generated no effect on the environment."
 
+                # Consultar memoria compartida para experiencias similares
+                memory = SharedMemory.get_instance()
+                similar_analyses = memory.get_relevant_experience(f"objects {len(changed_objects)} changed")
+                
                 # Generate objective analysis
                 objective_analysis = self._generate_object_analysis(
-                    changed_objects, unchanged_objects, action_description
+                    changed_objects, unchanged_objects, action_description, similar_analyses
                 )
 
                 # Generate images for Gemini analysis
@@ -191,6 +198,14 @@ class NucleiAisthesis:
 
                 # print(f"\n🔍 AISTHESIS RESPONSE:")
                 # print(aisthesis_response)
+
+                # Remember successful experience in shared memory with more context
+                memory_context = f"objects {len(changed_objects)} changed {len(unchanged_objects)} unchanged"
+                SharedMemory.get_instance().remember_success(
+                    memory_context, 
+                    action_description, 
+                    f"Detected {len(changed_objects)} changes successfully"
+                )
 
                 return aisthesis_response.content
 
@@ -387,6 +402,7 @@ class NucleiAisthesis:
         changed_objects: List[ObjectInfo],
         unchanged_objects: List[ObjectInfo],
         action_description: str,
+        similar_analyses: str = "",
     ) -> str:
         """Generate objective object analysis."""
         analysis = f"🔍 OBJECTIVE OBJECT ANALYSIS FOR: {action_description}\n\n"
@@ -418,6 +434,10 @@ class NucleiAisthesis:
             analysis += f"  • Objects that changed: {len(changed_objects)}\n"
             analysis += f"  • Objects that remained: {len(unchanged_objects)} ({unchanged_percentage:.1f}%)\n"
 
+        # Agregar experiencias similares si existen
+        if similar_analyses:
+            analysis += f"\n🧠 SIMILAR PAST EXPERIENCES:\n{similar_analyses}\n"
+
         return analysis
 
     def _build_aisthesis_prompt(
@@ -434,9 +454,11 @@ class NucleiAisthesis:
                 "agents/tomas_engine/nucleus/aisthesis.md", "r", encoding="utf-8"
             ) as f:
                 aisthesis_content = f.read()
+
         except FileNotFoundError:
             print("⚠️ Warning: aisthesis.md file not found")
             aisthesis_content = "Aisthesis module for objective object detection"
+
         except Exception as e:
             print(f"⚠️ Error reading aisthesis.md: {e}")
             aisthesis_content = "Aisthesis module for objective object detection"
@@ -445,13 +467,13 @@ class NucleiAisthesis:
         sequence_info = ""
         if executed_actions and len(executed_actions) > 1:
             sequence_info = f"""
-## EXECUTED ACTION SEQUENCE
+## EXECUTED ACTION SEQUENCE DECIDED by LOGOS
 {' → '.join(executed_actions)}
 (Comparing state before the entire sequence with state after all actions completed)
 """
         else:
             sequence_info = f"""
-## EXECUTED ACTION
+## EXECUTED ACTION DECIDED by LOGOS
 {action_name}
 """
 
@@ -479,9 +501,6 @@ class NucleiAisthesis:
 
 ## MATHEMATICAL OBJECT ANALYSIS
 {objective_analysis}
-
-## TASK
-Based on the mathematical analysis above and the images provided, detect and report objects in the format specified in the prompt. Focus on objective object detection - what objects exist, their properties, and how they changed.
 """
         return prompt
 

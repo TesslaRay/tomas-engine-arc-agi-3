@@ -308,7 +308,7 @@ class GeminiService:
 
         # Crear trace para observabilidad
         trace = self.langfuse.create_trace(
-            name=trace_name or f"gemini_multi_image_generation",
+            name=trace_name or "Tomas ARC AGI 3",
             user_id=user_id,
             session_id=session_id,
             metadata={
@@ -316,6 +316,7 @@ class GeminiService:
                 "temperature": temp,
                 "has_system_prompt": system_prompt is not None,
                 "image_count": len(image_data_list),
+                "nuclei": nuclei,
             },
             tags=tags,
         )
@@ -594,6 +595,7 @@ class GeminiService:
                 "model": model_name,
                 "temperature": temp,
                 "has_system_prompt": system_prompt is not None,
+                "nuclei": nuclei,
             },
             tags=tags,
         )

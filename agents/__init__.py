@@ -9,9 +9,8 @@ from .templates.llm_agents import LLM, FastLLM, GuidedLLM, ReasoningLLM
 from .templates.random_agent import Random
 from .templates.reasoning_agent import ReasoningAgent
 from .templates.smolagents import SmolCodingAgent, SmolVisionAgent
-from .tomas.tomas import Tomas
+
 from .tomas_engine.tomas_engine import TomasEngine
-from .tomas_engine.vision_agent_random import VisionAgentRandom
 
 load_dotenv()
 
@@ -41,8 +40,6 @@ __all__ = [
     "Agent",
     "Recorder",
     "Playback",
-    "Tomas",
     "TomasEngine",
-    "VisionAgentRandom",
     "AVAILABLE_AGENTS",
 ]
