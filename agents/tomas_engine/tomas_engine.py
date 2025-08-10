@@ -15,7 +15,7 @@ from agents.tomas_engine.constants import game_action_to_string
 class TomasEngine(Agent):
     """Tomas Engine Agent"""
 
-    MAX_ACTIONS = 1000
+    MAX_ACTIONS = 60
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
