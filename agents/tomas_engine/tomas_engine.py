@@ -15,7 +15,7 @@ from agents.tomas_engine.constants import game_action_to_string
 class TomasEngine(Agent):
     """Tomas Engine Agent"""
 
-    MAX_ACTIONS = 60
+    MAX_ACTIONS = 1000
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
@@ -52,6 +52,12 @@ class TomasEngine(Agent):
             self.last_executed_action = None  # Clear last action on reset
             return GameAction.RESET
 
+        # Update shared memory with current turn information
+        from agents.tomas_engine.nucleus.shared_memory import SharedMemory
+
+        memory = SharedMemory.get_instance()
+        memory.set_current_turn(len(frames))
+
         # If we have pending actions from a sequence, execute the next one
         if self.pending_actions:
             next_action = self.pending_actions.pop(0)
@@ -80,6 +86,8 @@ class TomasEngine(Agent):
                 latest_frame=latest_frame,
                 aisthesis_analysis="",
                 sophia_reasoning="",
+                aisthesis_data=None,
+                sophia_data=None,
             )
         else:
             # Subsequent turns: aisthesis -> sophia -> logos
@@ -90,7 +98,7 @@ class TomasEngine(Agent):
             executed_actions = (
                 self.executed_sequence if self.executed_sequence else None
             )
-            aisthesis_analysis = self.aisthesis.analyze_action_effect(
+            aisthesis_analysis, aisthesis_data = self.aisthesis.analyze_action_effect(
                 frames=frames,
                 latest_frame=latest_frame,
                 executed_actions=executed_actions,
@@ -99,19 +107,24 @@ class TomasEngine(Agent):
             # Step 2: Sophia learns from action-effect pair
             # Determine what action was executed that caused this effect
             executed_action_for_sophia = self.last_executed_action or "unknown"
-            
-            sophia_reasoning = self.sophia.process(
+
+            sophia_reasoning, sophia_data = self.sophia.process(
                 action_executed=executed_action_for_sophia,
                 aisthesis_analysis=aisthesis_analysis,
-                game_context={"frame": len(frames), "executed_sequence": self.executed_sequence}
+                game_context={
+                    "frame": len(frames),
+                    "executed_sequence": self.executed_sequence,
+                },
             )
 
-            # Step 3: Logos converts reasoning to action sequence
+            # Step 3: Logos converts reasoning to action sequence (using structured data)
             action_sequence = self.logos.process(
                 frames=frames,
                 latest_frame=latest_frame,
                 aisthesis_analysis=aisthesis_analysis,
                 sophia_reasoning=sophia_reasoning,
+                aisthesis_data=aisthesis_data,
+                sophia_data=sophia_data,
             )
 
         # Extract first action and queue the rest
